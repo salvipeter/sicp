@@ -24,6 +24,16 @@
 ;;;   you have to change the names in functions if you want to use redefined
 ;;;   versions of some utilities.
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (require :lispbuilder-sdl)
+  (require :bordeaux-threads)
+  (rename-package :bordeaux-threads :bordeaux-threads '(:threads)))
+
+(in-package :cl-user)
+(defpackage :sicp
+  (:use :common-lisp))
+(in-package :sicp)
+
 
 ;;; Section 1.1.4
 
@@ -2211,7 +2221,7 @@ anti-clockwise direction HEIGHT units."
 
 ;;; (1) Call (OPEN-SDL-WINDOW width height)
 ;;; (2) Play around (use (CLEAR-WINDOW) to clear the contents)
-;;; (3) Call (SDL:QUIT)
+;;; (3) Call (SDL:QUIT-SDL)
 
 ;;; E.g.
 #|
@@ -2219,37 +2229,25 @@ anti-clockwise direction HEIGHT units."
 (defparameter *frame*
   (make-frame (make-vect 0 400) (make-vect 400 0) (make-vect 0 -400)))
 (funcall (square-limit #'wave 3) *frame*)
-(sdl:quit)
+(sdl:quit-sdl)
 |#
 ;;; Note:
 ;;; Implementation of the ROGERS function is left as an exercise to the reader.
 
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (require :sdl))
-
-(defvar *surface*)
-
-(let (width height)
-  (defun clear-window (&optional w h)
-    (when (and w h) (setf width w height h))
-    (sdl:draw-filled-rectangle *surface* 0 0 width height 255 255 255)
-    (sdl:flip *surface*)))
+(defun clear-window ()
+  (sdl:clear-display sdl:*white*)
+  (sdl:update-display))
 
 (defun open-sdl-window (width height)
-  (sdl:init sdl:+init-video+)
-  (setf *surface*
-	(sdl:set-video-mode width height 24 (logior sdl:+swsurface+
-						    sdl:+doublebuf+)))
-  (clear-window width height)
-  (sdl:flip *surface*)
-  (sdl:wm-set-caption "Painter" nil))
+  (sdl:init-sdl)
+  (sdl:window width height :title-caption "Painter")
+  (clear-window))
 
 (defun draw-line (start end)
-  (sdl:draw-line *surface*
-		 (round (xcor-vect start)) (round (ycor-vect start))
-		 (round (xcor-vect end)) (round (ycor-vect end))
-		 0 0 0)
-  (sdl:flip *surface*))
+  (sdl:draw-line (sdl:point :x (round (xcor-vect start)) :y (round (ycor-vect start)))
+                 (sdl:point :x (round (xcor-vect end))   :y (round (ycor-vect end)))
+                 :color sdl:*black*)
+  (sdl:update-display))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; SDL Specific Stuff Ends ;;;
@@ -6191,8 +6189,6 @@ Coercion is not tried if the arguments have the same type."
 ;;; Section 3.4.2
 
 ;;; A quick hack to make the examples work
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (require :bordeaux-threads))
 (defun parallel-execute (&rest procedures)
   (let ((threads (mapcar #'threads:make-thread procedures)))
     (loop while (some #'threads:thread-alive-p threads) do (sleep 0.1))))
