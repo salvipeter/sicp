@@ -6999,6 +6999,7 @@ Coercion is not tried if the arguments have the same type."
 
 
 ;;; Section 3.5.5
+
 (defvar *random-numbers*)
 (setq *random-numbers*
       (cons-stream *random-init*
@@ -7069,6 +7070,800 @@ Coercion is not tried if the arguments have the same type."
      #.(* 500.0 500.0)))
 
 ;;; Exercise 3.82 END
+
+
+;;; Section 4.1.1
+
+(defun eval-1 (exp env)
+  "%EVAL, defined in Exercise 4.3, is much better."
+  (cond ((self-evaluating-p exp) exp)
+        ((variablep exp) (lookup-variable-value exp env))
+        ((quotedp exp) (text-of-quotation exp))
+        ((assignmentp exp) (eval-assignment exp env))
+        ((definitionp exp) (eval-definition exp env))
+        ((ifp exp) (eval-if exp env))
+        ((lambdap exp)
+         (make-procedure (lambda-parameters exp)
+                         (lambda-body exp)
+                         env))
+        ((beginp exp) (eval-sequence (begin-actions exp) env))
+        ((condp exp) (eval-1 (cond->if exp) env))
+        ((applicationp exp)
+         (%apply (eval-1 (operator exp) env)
+                 (list-of-values (operands exp) env)))
+        (t (error "Unknown expression type in ~a -- EVAL" exp))))
+
+(defun %apply (procedure arguments)
+  (cond ((primitive-procedure-p procedure)
+         (apply-primitive-procedure procedure arguments))
+        ((compound-procedure-p procedure)
+         (eval-sequence
+          (procedure-body procedure)
+          (extend-environment (procedure-parameters procedure)
+                              arguments
+                              (procedure-environment procedure))))
+        (t (error "Unknown procedure type in ~a -- APPLY" procedure))))
+
+(defun list-of-values (exps env)
+  (if (no-operands-p exps)
+      '()
+      (cons (%eval (first-operand exps) env)
+            (list-of-values (rest-operands exps) env))))
+
+(defun eval-if (exp env)
+  (if (truep (%eval (if-predicate exp) env))
+      (%eval (if-consequent exp) env)
+      (%eval (if-alternative exp) env)))
+
+(defun eval-sequence (exps env)
+  (cond ((last-exp-p exps) (%eval (first-exp exps) env))
+        (t (%eval (first-exp exps) env)
+           (eval-sequence (rest-exps exps) env))))
+
+(defun eval-assignment (exp env)
+  (set-variable-value (assignment-variable exp)
+                      (%eval (assignment-value exp) env)
+                      env)
+  'ok)
+
+(defun eval-definition (exp env)
+  (define-variable (definition-variable exp)
+                   (%eval (definition-value exp) env)
+                   env)
+  'ok)
+
+;;; Exercise 4.1 START
+
+(defun list-of-values-left-to-right (exps env)
+  (if (no-operands-p exps)
+      '()
+      (let ((first (%eval (first-operand exps) env)))
+        (cons first (list-of-values (rest-operands exps) env)))))
+
+(defun list-of-values-right-to-left (exps env)
+  (if (no-operands-p exps)
+      '()
+      (let ((rest (list-of-values (rest-operands exps) env)))
+        (cons (%eval (first-operand exps) env) rest))))
+
+;;; Exercise 4.1 END
+
+
+;;; Section 4.1.2
+
+(defun self-evaluating-p (exp)
+  (or (numberp exp) (stringp exp)))
+
+;;; VARIABLEP same as in Section 2.3.2
+
+(defun quotedp (exp)
+  (tagged-list-p exp 'quote))
+
+(defun text-of-quotation (exp)
+  (cadr exp))
+
+(defun tagged-list-p (exp tag)
+  (and (consp exp) (eq (car exp) tag)))
+
+(defun assignmentp (exp)
+  (tagged-list-p exp 'set!))
+
+(defun assignment-variable (exp)
+  (cadr exp))
+
+(defun assignment-value (exp)
+  (caddr exp))
+
+(defun definitionp (exp)
+  (tagged-list-p exp 'define))
+
+(defun definition-variable (exp)
+  (if (symbolp (cadr exp))
+      (cadr exp)
+      (caadr exp)))
+
+(defun definition-value (exp)
+  (if (symbolp (cadr exp))
+      (caddr exp)
+      (make-lambda (cdadr exp) (cddr exp))))
+
+(defun lambdap (exp)
+  (tagged-list-p exp 'lambda))
+
+(defun lambda-parameters (exp)
+  (cadr exp))
+
+(defun lambda-body (exp)
+  (cddr exp))
+
+(defun make-lambda (parameters body)
+  (cons 'lambda (cons parameters body)))
+
+(defun ifp (exp)
+  (tagged-list-p exp 'if))
+
+(defun if-predicate (exp)
+  (cadr exp))
+
+(defun if-consequent (exp)
+  (caddr exp))
+
+(defun if-alternative (exp)
+  (if (not (null (cdddr exp)))
+      (cadddr exp)
+      'false))
+
+(defun make-if (predicate consequent alternative)
+  (list 'if predicate consequent alternative))
+
+(defun beginp (exp)
+  (tagged-list-p exp 'begin))
+
+(defun begin-actions (exp)
+  (cdr exp))
+
+(defun last-exp-p (seq)
+  (null (cdr seq)))
+
+(defun first-exp (seq)
+  (car seq))
+
+(defun rest-exps (seq)
+  (cdr seq))
+
+(defun sequence->exp (seq)
+  (cond ((null seq) seq)
+        ((last-exp-p seq) (first-exp seq))
+        (t (make-begin seq))))
+
+(defun make-begin (seq)
+  (cons 'begin seq))
+
+(defun applicationp (exp)
+  (consp exp))
+
+;;; OPERATOR and OPERANDS same as in Exercise 2.73
+
+(defun no-operands-p (ops)
+  (null ops))
+
+(defun first-operand (ops)
+  (car ops))
+
+(defun rest-operands (ops)
+  (rest ops))
+
+(defun condp (exp)
+  (tagged-list-p exp 'cond))
+
+(defun cond-clauses (exp)
+  (cdr exp))
+
+(defun cond-else-clause-p (clause)
+  (eq (cond-predicate clause) 'else))
+
+(defun cond-predicate (clause)
+  (car clause))
+
+(defun cond-actions (clause)
+  (cdr clause))
+
+(defun cond->if (exp)
+  (expand-clauses (cond-clauses exp)))
+
+(defun expand-clauses-1 (clauses)
+  "EXPAND-CLAUSES will be defined in Exercise 4.5."
+  (if (null clauses)
+      'false
+      (let ((first (car clauses))
+            (rest (cdr clauses)))
+        (if (cond-else-clause-p first)
+            (if (null rest)
+                (sequence->exp (cond-actions first))
+                (error "ELSE clause isn't last in ~a -- COND->IF" clauses))
+            (make-if (cond-predicate first)
+                     (sequence->exp (cond-actions first))
+                     (expand-clauses-1 rest))))))
+
+;;; Exercise 4.2 START
+
+;;; (a)
+;;; In the current implementation, APPLICATIONP is just CONSP,
+;;; so moving this test to the front would result in evaluating
+;;; (define x 3) as an application instead of a definition.
+
+;;; (b)
+;;; We need to use the following functions:
+
+(defun applicationp-1 (exp)
+  "Applications are denoted by CALL, e.g. (call f x y)."
+  (tagged-list-p exp 'call))
+
+(defun operator-1 (exp)
+  "Applications are denoted by CALL, e.g. (call f x y).
+Operator is F."
+  (cadr exp))
+
+(defun operands-1 (exp)
+  "Applications are denoted by CALL, e.g. (call f x y).
+Operands are (X Y)."
+  (cddr exp))
+
+;;; Exercise 4.2 END
+
+;;; Exercise 4.3 START
+
+(defun %eval (exp env)
+  "Data-directed dispatch."
+  (cond ((self-evaluating-p exp) exp)
+        ((variablep exp) (lookup-variable-value exp env))
+        ((and (symbolp (car exp)) (get (car exp) 'eval))
+         (funcall (get (car exp) 'eval) exp env))
+        ((applicationp exp)
+         (%apply (%eval (operator exp) env)
+                 (list-of-values (operands exp) env)))
+        (t (error "Unknown expression type in ~a -- EVAL" exp))))
+
+(defun install-function (tag fn)
+  (setf (get tag 'eval) fn))
+
+(install-function 'quote (lambda (exp env)
+                           (declare (ignore env))
+                           (text-of-quotation exp)))
+(install-function 'set! #'eval-assignment)
+(install-function 'define #'eval-definition)
+(install-function 'if #'eval-if)
+(install-function 'lambda (lambda (exp env)
+                            (make-procedure (lambda-parameters exp)
+                                            (lambda-body exp)
+                                            env)))
+(install-function 'begin (lambda (exp env)
+                           (eval-sequence (begin-actions exp) env)))
+(install-function 'cond (lambda (exp env)
+                          (%eval (cond->if exp) env)))
+
+;;; Exercise 4.3 END
+
+;;; Exercise 4.4 START
+
+(defun andor-exps (exp)
+  (cdr exp))
+
+(defun eval-and (exp env)
+  (labels ((rec (exps)
+             (cond ((null exps) 'true)
+                   ((truep (%eval (first-exp exps) env))
+                    (rec (rest-exps exps)))
+                   (t 'false))))
+    (rec (andor-exps exp))))
+
+(defun eval-or (exp env)
+  (labels ((rec (exps)
+             (cond ((null exps) 'false)
+                   ((truep (%eval (first-exp exps) env)) 'true)
+                   (t (rec (rest-exps exps))))))
+    (rec (andor-exps exp))))
+
+(install-function 'and #'eval-and)
+(install-function 'or #'eval-or)
+
+;;; We can also convert an AND or OR expression to IFs:
+
+(defun and->if (exp)
+  (labels ((expand (exps)
+             (if (null exps)
+                 'true
+                 (make-if (first-exp exps)
+                          (expand (rest-exps exps))
+                          'false))))
+    (expand (andor-exps exp))))
+
+(defun or->if (exp)
+  (labels ((expand (exps)
+             (if (null exps)
+                 'false
+                 (make-if (first-exp exps)
+                          'true
+                          (expand (rest-exps exps))))))
+    (expand (andor-exps exp))))
+
+(install-function 'and-1 (lambda (exp env)
+                           (%eval (and->if exp) env)))
+(install-function 'or-1 (lambda (exp env)
+                          (%eval (or->if exp) env)))
+
+;;; Exercise 4.4 END
+
+;;; Exercise 4.5 START
+
+(defun cond-arrow-clause-p (clause)
+  (eq (cadr clause) '=>))
+
+(defun cond-arrow-action (clause)
+  (caddr clause))
+
+(defun make-application (operator operands)
+  (cons operator operands))
+
+(defun expand-clauses (clauses)
+  "Also handles the => syntax."
+  (if (null clauses)
+      'false
+      (let ((first (car clauses))
+            (rest (cdr clauses)))
+        (cond ((cond-else-clause-p first)
+               (if (null rest)
+                   (sequence->exp (cond-actions first))
+                   (error "ELSE clause isn't last in ~a -- COND->IF" clauses)))
+              ((cond-arrow-clause-p first)
+               (let ((sym (gensym)))
+                 (make-application
+                  (make-lambda (list sym)
+                    (list (make-if sym
+                                   (make-application (cond-arrow-action first)
+                                                     (list sym))
+                                   (expand-clauses rest))))
+                  (list (cond-predicate first)))))
+              (t (make-if (cond-predicate first)
+                          (sequence->exp (cond-actions first))
+                          (expand-clauses rest)))))))
+
+;;; Exercise 4.5 END
+
+;;; Exercise 4.6 START
+
+(defun let-vars (exp)
+  (mapcar #'car (cadr exp)))
+
+(defun let-vals (exp)
+  (mapcar #'cadr (cadr exp)))
+
+(defun let-body (exp)
+  (cddr exp))
+
+(defun let->combination (exp)
+  (flet ((expand (vars vals exps)
+           (make-application
+            (make-lambda vars exps)
+            vals)))
+    (expand (let-vars exp) (let-vals exp) (let-body exp))))
+
+;;; We will install let->combination-1 instead.
+#+nil
+(install-function 'let (lambda (exp env)
+                         (%eval (let->combination exp) env)))
+
+;;; Exercise 4.6 END
+
+;;; Exercise 4.7 START
+
+;;; It's sufficient to use the already implemented LET.
+
+(defun make-let (vars vals exps)
+  (append (list 'let (mapcar #'list vars vals))
+          exps))
+
+(defun let*->nested-lets (exp)
+  (labels ((expand (vars vals exps)
+             (if (null vars)
+                 exps
+                 (list (make-let (list (car vars))
+                                 (list (car vals))
+                                 (expand (cdr vars) (cdr vals) exps))))))
+    (car (expand (let-vars exp) (let-vals exp) (let-body exp)))))
+
+(install-function 'let* (lambda (exp env)
+                          (%eval (let*->nested-lets exp) env)))
+
+;;; Exercise 4.7 END
+
+;;; Exercise 4.8 START
+
+;;; This is a good place to use the Y-combinator!
+;;; But we can also use define, which is simpler.
+
+(defun named-let-p (exp)
+  (variablep (cadr exp)))
+
+(defun named-let-name (exp)
+  (cadr exp))
+
+(defun named-let-vars (exp)
+  (mapcar #'car (caddr exp)))
+
+(defun named-let-vals (exp)
+  (mapcar #'cadr (caddr exp)))
+
+(defun named-let-body (exp)
+  (cdddr exp))
+
+(defun make-definition (var exp)
+  (list 'define var exp))
+
+(defun let->combination-1 (exp)
+  "Supports named LETs."
+  (flet ((expand (name vars vals exps)
+           (make-begin
+            (list (make-definition name
+                    (make-lambda vars exps))
+                  (make-application name vals)))))
+    (if (named-let-p exp)
+        (expand (named-let-name exp)
+                (named-let-vars exp)
+                (named-let-vals exp)
+                (named-let-body exp))
+        (let->combination exp))))
+
+(install-function 'let (lambda (exp env)
+                         (%eval (let->combination-1 exp) env)))
+
+;;; Exercise 4.8 END
+
+;;; Exercise 4.9 START
+
+;;; Standard DO:
+;;;   (do bindings (pred . exps) body)
+;;; where a binding is (var start next),
+;;; PRED gives the condition to stop,
+;;; and EXPS is a list of expressions to generate the value.
+
+;;; Example:
+;; (do ((a 1 (+ a b))
+;;      (b 1 a))
+;;     ((> a 100) (list a b))
+;;   (display a))
+;;; => (144 89), printing 1 2 3 5 8 13 21 34 55 89
+
+;;; Expansion:
+;; (let rec ((a 1)
+;;           (b 1))
+;;   (if (> a 100)
+;;       (begin (list a b))
+;;       (begin (display a)
+;;              (rec (+ a b) a))))
+
+(defun do-vars (exp)
+  (mapcar #'car (cadr exp)))
+
+(defun do-vals (exp)
+  (mapcar #'cadr (cadr exp)))
+
+(defun do-updates (exp)
+  (mapcar #'caddr (cadr exp)))
+
+(defun do-predicate (exp)
+  (caaddr exp))
+
+(defun do-value-exps (exp)
+  (cdaddr exp))
+
+(defun do-body (exp)
+  (cdddr exp))
+
+(defun make-named-let (name vars vals exps)
+  (append (list 'let name (mapcar #'list vars vals))
+          exps))
+
+(defun do->letcond (exp)
+  (let* ((sym (gensym))
+         (next (make-application sym (do-updates exp))))
+    (make-named-let sym (do-vars exp) (do-vals exp)
+      (list (make-if (do-predicate exp)
+                     (make-begin (do-value-exps exp))
+                     (make-begin (append (do-body exp) (list next))))))))
+
+(install-function 'do (lambda (exp env)
+                         (%eval (do->letcond exp) env)))
+
+;;; Exercise 4.9 END
+
+;;; Exercise 4.10 START
+
+;;; If we cannot change EVAL, we still have to use the first element as a tag.
+;;; But otherwise we are free to do (almost) anything.
+;;; Exercise 4.5 has already shown that we can modify the syntax,
+;;; just by changing EXPAND-CLAUSES.
+
+;;; Exercise 4.10 END
+
+
+;;; Section 4.1.3
+
+(defun truep (x)
+  (not (eq x 'false)))
+
+(defun falsep (x)
+  (eq x 'false))
+
+(defun make-procedure (parameters body env)
+  (list 'procedure parameters body env))
+
+(defun compound-procedure-p (p)
+  (tagged-list-p p 'procedure))
+
+(defun procedure-parameters (p)
+  (cadr p))
+
+(defun procedure-body (p)
+  (caddr p))
+
+(defun procedure-environment (p)
+  (cadddr p))
+
+(defun enclosing-environment (env)
+  (cdr env))
+
+(defun first-frame (env)
+  (car env))
+
+(defparameter *the-empty-environment* '())
+
+(defun make-env-frame (variables values)
+  "MAKE-FRAME was used in Section 2.2.4."
+  (cons variables values))
+
+(defun frame-variables (frame)
+  (car frame))
+
+(defun frame-values (frame)
+  (cdr frame))
+
+(defun add-binding-to-frame (var val frame)
+  (push var (car frame))
+  (push val (cdr frame)))
+
+(defun extend-environment (vars vals base-env)
+  (if (= (length vars) (length vals))
+      (cons (make-env-frame vars vals) base-env)
+      (if (< (length vars) (length vals))
+          (error "Too many arguments supplied: ~a, ~a" vars vals)
+          (error "Too few arguments supplied: ~a, ~a" vars vals))))
+
+(defun lookup-variable-value (var env)
+  "This version uses an extra ENV argument for SCAN.
+This is easier to understand than the nested defines."
+  (labels ((scan (vars vals env)
+             (cond ((null vars)
+                    (env-loop (enclosing-environment env)))
+                   ((eq var (car vars))
+                    (car vals))
+                   (t (scan (cdr vars) (cdr vals) env))))
+           (env-loop (env)
+             (if (eq env *the-empty-environment*)
+                 (error "Unbound variable: ~a" var)
+                 (let ((frame (first-frame env)))
+                   (scan (frame-variables frame) (frame-values frame) env)))))
+    (env-loop env)))
+
+(defun set-variable-value (var val env)
+  "As above."
+  (labels ((scan (vars vals env)
+             (cond ((null vars)
+                    (env-loop (enclosing-environment env)))
+                   ((eq var (car vars))
+                    (setf (car vals) val))
+                   (t (scan (cdr vars) (cdr vals) env))))
+           (env-loop (env)
+             (if (eq env *the-empty-environment*)
+                 (error "Unbound variable: ~a -- SET!" var)
+                 (let ((frame (first-frame env)))
+                   (scan (frame-variables frame) (frame-values frame) env)))))
+    (env-loop env)))
+
+(defun define-variable (var val env)
+  (let ((frame (first-frame env)))
+    (labels ((scan (vars vals)
+               (cond ((null vars)
+                      (add-binding-to-frame var val frame))
+                     ((eq var (car vars))
+                      (setf (car vals) val))
+                     (t (scan (cdr vars) (cdr vals))))))
+      (scan (frame-variables frame) (frame-values frame)))))
+
+;;; Exercise 4.11 START
+
+(defun make-env-frame-1 (variables values)
+  "Representation as a list of bindings."
+  (mapcar #'cons variables values))
+
+(defun frame-variables-1 (frame)
+  "Representation as a list of bindings."
+  (mapcar #'car frame))
+
+(defun frame-values-1 (frame)
+  "Representation as a list of bindings."
+  (mapcar #'cdr frame))
+
+(defun add-binding-to-frame-1 (var val frame)
+  "Representation as a list of bindings."
+  (push (cons var val) frame))
+
+;;; Exercise 4.11 END
+
+;;; Exercise 4.12 START
+
+(defun find-var-in-frame (frame var exp final)
+  "EXP is a function taking a list, the head is what we searched for.
+FINAL is a function taking no arguments, called when not found."
+  (labels ((scan (vars vals)
+             (cond ((null vars)
+                    (funcall final))
+                   ((eq var (car vars))
+                    (funcall exp vals))
+                   (t (scan (cdr vars) (cdr vals))))))
+    (scan (frame-variables frame) (frame-values frame))))
+
+(defun find-var-in-env (env var exp)
+  "EXP is a function taking a list, the head is what we searched for."
+  (labels ((env-loop (env)
+             (if (eq env *the-empty-environment*)
+                 (error "Unbound variable: ~a" var)
+                 (let ((frame (first-frame env))
+                       (next (enclosing-environment env)))
+                   (find-var-in-frame frame var exp
+                                      (lambda () (env-loop next)))))))
+    (env-loop env)))
+
+(defun lookup-variable-value-1 (var env)
+  "Using FIND-VAR-IN-ENV."
+  (find-var-in-env env var
+    (lambda (vals) (car vals))))
+
+(defun set-variable-value-1 (var val env)
+  "Using FIND-VAR-IN-ENV."
+  (find-var-in-env env var
+    (lambda (vals) (setf (car vals) val))))
+
+(defun define-variable-1 (var val env)
+  "Using FIND-VAR-IN-FRAME."
+  (let ((frame (first-frame env)))
+    (find-var-in-frame frame var
+      (lambda (vals) (setf (car vals) val))
+      (lambda () (add-binding-to-frame var val frame)))))
+
+;;; Exercise 4.12 END
+
+;;; Exercise 4.13 START
+
+;;; From its name, one would think that the symbol
+;;; does not have a binding after the operation.
+;;; That would mean removing it from all frames.
+
+;;; On the other hand, this could unbind symbols
+;;; that enclosing procedures depend on.
+
+(defun make-unbound (var env)
+  "Only in the first frame."
+  (let ((frame (first-frame env)))
+    (find-var-in-frame frame var
+      (lambda (vals) (pop vals))
+      (lambda () nil))))
+
+(defun make-unbound-1 (var env)
+  "In all frames."
+  (unless (eq env *the-empty-environment*)
+    (make-unbound var env)
+    (make-unbound-1 var (enclosing-environment env))))
+
+;;; Exercise 4.13 END
+
+
+;;; Section 4.1.4
+
+(defun setup-environment ()
+  (let ((initial-env (extend-environment (primitive-procedure-names)
+                                         (primitive-procedure-objects)
+                                         *the-empty-environment*)))
+    (define-variable 'true 'true initial-env)
+    (define-variable 'false 'false initial-env)
+    initial-env))
+
+(defvar *the-global-environment*)
+
+(defun primitive-procedure-p (proc)
+  (tagged-list-p proc 'primitive))
+
+(defun primitive-implementation (proc)
+  (cadr proc))
+
+(defun lisp->scheme (x)
+  "For convenience."
+  (cond ((atom x) (list x (symbol-function x)))
+        ((functionp (second x)) x)
+        (t (list (first x) (symbol-function (second x))))))
+
+(defun tfify (fn)
+  "Create a TRUE/FALSE function."
+  (lambda (&rest x)
+    (if (apply fn x)
+        'true
+        'false)))
+
+(defparameter *primitive-procedures*
+  (mapcar #'lisp->scheme
+          `(car cdr cadr cons list assoc + - * / (display print)
+            (null? ,(tfify #'null)) (eq? ,(tfify #'eq))
+            (< ,(tfify #'<)) (> ,(tfify #'>)) (= ,(tfify #'=)))))
+
+(defun primitive-procedure-names ()
+  (mapcar #'car *primitive-procedures*))
+
+(defun primitive-procedure-objects ()
+  (mapcar (lambda (proc)
+            (list 'primitive (cadr proc)))
+          *primitive-procedures*))
+
+(defun apply-primitive-procedure (proc args)
+  (apply (primitive-implementation proc) args))
+
+(defparameter *input-prompt* ";;; M-Eval input:")
+(defparameter *output-prompt* ";;; M-Eval value:")
+
+(defun driver-loop ()
+  (prompt-for-input *input-prompt*)
+  (let* ((input (read))
+         (output (%eval input *the-global-environment*)))
+    (announce-output *output-prompt*)
+    (user-print output))
+  (driver-loop))
+
+(defun prompt-for-input (string)
+  (format t "~%~%~a~%" string))
+
+(defun announce-output (string)
+  (format t "~%~a~%" string))
+
+(defun user-print (object)
+  (if (compound-procedure-p object)
+      (print (list 'compound-procedure
+                   (procedure-parameters object)
+                   (procedure-body object)
+                   '<procedure-env>))
+      (print object)))
+
+(setf *the-global-environment* (setup-environment))
+
+;;; Exercise 4.14 START
+
+;;; Defining MAP as
+;;
+;; (define (map fn lst)
+;;   (if (null? lst)
+;;       '()
+;;       (cons (fn (car lst))
+;;             (map fn (cdr lst)))))
+;;
+;;; obviously works.
+
+;;; The interesting question is, why does the host's map not work?
+;;; The problem is the function argument.
+;;; The host function needs a primitive host function,
+;;; while what we have is a procedure (either primitive or compound).
+
+;;; Exercise 4.14 END
+
+
+;;; Section 4.1.5
 
 
 ;;Local Variables:
