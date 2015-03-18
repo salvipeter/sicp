@@ -14,7 +14,7 @@
 ;;; Conversion notes:
 ;;; - names are CLified:
 ;;; - functions with names of CL function names get a % prefix
-;;; - functions redefinitions are renamed and documented*
+;;; - function redefinitions are renamed and documented*
 ;;; - flet/labels instead of defun inside defun
 ;;; - some SICP-defined functions are substituted with their CL equivalents
 ;;; - exercises may use CL-specific code or functions that are not yet learned
@@ -7864,6 +7864,204 @@ FINAL is a function taking no arguments, called when not found."
 
 
 ;;; Section 4.1.5
+
+;;; Exercise 4.15 START
+
+;;; If, according to HALTSP, TRY halts on itself,
+;;; then it should run forever, which is a contradiction.
+;;; Similarly, if HALTSP says that TRY does not halt,
+;;; then it promptly halts returning HALTED,
+;;; so this is a paradox, the assumption that HALTSP exists is wrong.
+
+;;; Exercise 4.15 END
+
+
+;;; Section 4.1.6
+
+;;; Exercise 4.16 START
+
+;;; (a)
+(defun lookup-variable-value-2 (var env)
+  "Error on *UNASSIGNED*."
+  (let ((result (lookup-variable-value-1 var env)))
+    (if (eq result '*unassigned*)
+        (error "Use of unassigned variable: ~a" var)
+        result)))
+
+;;; (b)
+(defun crawl-body (body)
+  "Assumes that all defines are top-level inside lambda."
+  (let ((vars '()))
+    (labels ((rec (exp)
+               (cond ((definitionp exp)
+                      (push (definition-variable exp) vars)
+                      `(set! ,(definition-variable exp)
+                             ,(definition-value exp)))
+                     (t exp))))
+      (values (mapcar #'rec body) vars))))
+
+(defun scan-out-defines (body)
+  (multiple-value-bind (new-body vars)
+      (crawl-body body)
+    (if (null vars)
+        body
+        `((let ,(mapcar (lambda (x) (list x ''*unassigned*)) vars)
+            ,@new-body)))))
+
+;;; (c)
+;;; MAKE-PROCEDURE seems to be the better choice,
+;;; this way it only runs once,
+;;; and also PROCEDURE-BODY is a selector, it shouldn't do anything else.
+(defun make-procedure-1 (parameters body env)
+  "Scans out defines."
+  (list 'procedure parameters (scan-out-defines body) env))
+
+;;; Exercise 4.16 END
+
+;;; Exercise 4.17 START
+
+;;; Frames when evaluating <E3> (shown in CONSed representation):
+;;; Sequential : (((V . <E2>) (U . <E1>) <VARS>) base-env)
+;;; Scanned out: (((U . <E1>) (V . <E2>)) (<VARS>) base-env)
+
+;;; There is an extra frame, because there is a lambda call
+;;; disguised as a let.
+
+;;; If a program is correct, these will be the same, because
+;;; contents of the frames will be essentially the same.
+
+;;; Simultaneous scope can be achieved without an extra frame by
+;;; using defines, which modify the current frame:
+;;
+;; (lambda <VARS>
+;;   (define u <E1>)
+;;   (define v <E2>)
+;;   <E3>)
+;;
+;;; becomes
+;;
+;; (lambda <VARS>
+;;   (define u '*unassigned*)
+;;   (define v '*unassigned*)
+;;   (set! u <E1>)
+;;   (set! v <E2>)
+;;   <E3>)
+
+;;; Exercise 4.17 END
+
+;;; Exercise 4.18 START
+
+;;; This strategy won't work, because LET evaluates <E2>
+;;; in an environment where U is still *UNASSIGNED*.
+;;; So in this case, (stream-map f y) will be called when y is *unassigned*.
+
+;;; In the original strategy this problem does not appear,
+;;; as <E1> and <E2> are evaluated and assigned to U and V sequentially.
+
+;;; Exercise 4.18 END
+
+;;; Exercise 4.19 START
+
+;;; I don't particularly like the simultaneous scope rule,
+;;; at least with this syntax (sequential statements should have
+;;; sequential effects), but even if we use this rule, I don't
+;;; support Eva's version. A and B are simultaneously set,
+;;; so until they are set, lookups should be able to find their
+;;; previous value. So I would go with Ben's version.
+
+;;; Using MAKE-PROCEDURE-1 will result in an error (Alyssa's version).
+
+;;; Lookup behavior:
+;;; (i) If the first frame does not have the symbol, add it
+;;; (ii) If any frame has the symbol, just set it
+
+;;; Closure behavior:
+;;; (1) Closed values are copied
+;;; (2) Pointers to closed values are saved
+
+;;; i  - 1: 16 \
+;;; i  - 2: 16  => Ben's version
+;;; ii - 1: 16 /
+;;; ii - 2: 20 => Eva's version
+
+;;; Exercise 4.19 END
+
+;;; Exercise 4.20 START
+
+;;; (a)
+(defun letrec->let-sets (exp)
+  `(let ,(mapcar (lambda (x) (list x ''*unassigned*)) (let-vars exp))
+     ,@(mapcar (lambda (x y) `(set! ,x ,y)) (let-vars exp) (let-vals exp))
+     ,@(let-body exp)))
+
+(install-function 'letrec (lambda (exp env)
+                            (%eval (letrec->let-sets exp) env)))
+
+;;; (b)
+
+;;; With letrec: (((even? . <LAMBDA/env2>) (odd? . <LAMBDA/env2>)) ((x . 5)) base-env)
+;;; With let   : (((even? . <LAMBDA/env1>) (odd? . <LAMBDA/env1>)) ((x . 5)) base-env)
+;;; where env1 = (((x . 5)) base-env)
+;;;       env2 = (((even? . *undefined*) (odd? . *undefined*)) ((x . 5)) base-env)
+
+;;; Exercise 4.20 END
+
+;;; Exercise 4.21 START
+
+;;; (a)
+
+#+nil
+(%eval
+ '(let ((fibonacci (lambda (n)
+                     ((lambda (fib)
+                        (fib fib n))
+                      (lambda (f n)
+                        (if (< n 3)
+                            1
+                            (+ (f f (- n 1)) (f f (- n 2)))))))))
+   (do ((i 1 (+ i 1)))
+       ((> i 10) true)
+     (display (list i (fibonacci i))))) 
+ *the-global-environment*)
+
+;;; If we extract the Y-combinator:
+
+#+nil
+(%eval
+ '(begin
+   (define (Y f)
+     ((lambda (x) (f (lambda (y) ((x x) y))))
+      (lambda (x) (f (lambda (y) ((x x) y))))))
+   (let* ((fib (lambda (f)
+                 (lambda (n)
+                   (if (< n 3)
+                       1
+                       (+ (f (- n 1)) (f (- n 2)))))))
+          (fibonacci (Y fib)))
+     (do ((i 1 (+ i 1)))
+         ((> i 10) true)
+       (display (list i (fibonacci i))))))
+ *the-global-environment*)
+
+;;; (b)
+
+#+nil
+(%eval
+ '(begin
+   (define (f x)
+     ((lambda (even? odd?)
+        (even? even? odd? x))
+      (lambda (ev? od? n)
+        (if (= n 0) true (od? ev? od? (- n 1))))
+      (lambda (ev? od? n)
+        (if (= n 0) false (ev? ev? od? (- n 1))))))
+   (list (f 5) (f 6)))
+ *the-global-environment*)
+
+;;; Exercise 4.21 END
+
+
+;;; Section 4.1.7
 
 
 ;;Local Variables:
