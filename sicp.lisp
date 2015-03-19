@@ -8063,6 +8063,208 @@ FINAL is a function taking no arguments, called when not found."
 
 ;;; Section 4.1.7
 
+(defun eval-2 (exp env)
+  (funcall (analyze exp) env))
+
+(defun analyze (exp)
+  (cond ((self-evaluating-p exp) (analyze-self-evaluating exp))
+        ((quotedp exp) (analyze-quoted exp))
+        ((variablep exp) (analyze-variable exp))
+        ((assignmentp exp) (analyze-assignment exp))
+        ((definitionp exp) (analyze-definition exp))
+        ((ifp exp) (analyze-if exp))
+        ((lambdap exp) (analyze-lambda exp))
+        ((beginp exp) (analyze-sequence (begin-actions exp)))
+        ((condp exp) (analyze (cond->if exp)))
+;;; Exercise 4.22 START
+
+        ;; The condition should be abstracted into LETP
+        ((tagged-list-p exp 'let) (analyze (let->combination exp)))
+
+;;; Exercise 4.22 END
+        ((applicationp exp) (analyze-application exp))
+        (t (error "Unknown expression type in ~a -- ANALYZE" exp))))
+
+(defun analyze-self-evaluating (exp)
+  (lambda (env)
+    (declare (ignore env))
+    exp))
+
+(defun analyze-quoted (exp)
+  (let ((qval (text-of-quotation exp)))
+    (lambda (env)
+      (declare (ignore env))
+      qval)))
+
+(defun analyze-variable (exp)
+  (lambda (env)
+    (lookup-variable-value exp env)))
+
+(defun analyze-assignment (exp)
+  (let ((var (assignment-variable exp))
+        (vproc (analyze (assignment-value exp))))
+    (lambda (env)
+      (set-variable-value var (funcall vproc env) env)
+      'ok)))
+
+(defun analyze-definition (exp)
+  (let ((var (definition-variable exp))
+        (vproc (analyze (definition-value exp))))
+    (lambda (env)
+      (define-variable var (funcall vproc env) env)
+      'ok)))
+
+(defun analyze-if (exp)
+  (let ((pproc (analyze (if-predicate exp)))
+        (cproc (analyze (if-consequent exp)))
+        (aproc (analyze (if-alternative exp))))
+    (lambda (env)
+      (if (truep (funcall pproc env))
+          (funcall cproc env)
+          (funcall aproc env)))))
+
+(defun analyze-lambda (exp)
+  (let ((vars (lambda-parameters exp))
+        (bproc (analyze-sequence (lambda-body exp))))
+    (lambda (env)
+      (make-procedure vars bproc env))))
+
+(defun analyze-sequence (exps)
+  (labels ((sequentially (proc1 proc2)
+             (lambda (env)
+               (funcall proc1 env)
+               (funcall proc2 env)))
+           (rec (first-proc rest-procs)
+             (if (null rest-procs)
+                 first-proc
+                 (rec (sequentially first-proc (car rest-procs))
+                      (cdr rest-procs)))))
+    (let ((procs (mapcar #'analyze exps)))
+      (if (null procs)
+          (error "Empty sequence -- ANALYZE")
+          (rec (car procs) (cdr procs))))))
+
+(defun analyze-application (exp)
+  (let ((fproc (analyze (operator exp)))
+        (aprocs (mapcar #'analyze (operands exp))))
+    (lambda (env)
+      (execute-application (funcall fproc env)
+                           (mapcar (lambda (aproc) (funcall aproc env))
+                                   aprocs)))))
+
+(defun execute-application (proc args)
+  (cond ((primitive-procedure-p proc)
+         (apply-primitive-procedure proc args))
+        ((compound-procedure-p proc)
+         (funcall (procedure-body proc)
+                  (extend-environment (procedure-parameters proc)
+                                      args
+                                      (procedure-environment proc))))
+        (t (error "Unknown procedure type in ~a -- EXECUTE-APPLICATION" proc))))
+
+;;; Exercise 4.23 START
+
+;;; In the original version, we first generate a recursive application, e.g.:
+;;;   (sequentially (sequentially (sequentially p1 p2) p3) p4)
+;;; which is one big function.
+
+;;; In Alyssa's version, all of EXECUTE-SEQUENCE runs in evaluation time,
+;;; so the interpreting of the procedure list (p1 p2 p3 p4) is done every time.
+
+;;; Even for only one expression, Alyssa's version does unnecessary work.
+;;; For evaluating EXPR, Alyssa's version boils down to:
+;;
+;; (flet ((execute-sequence (procs env)
+;;          (if (null (cdr procs))
+;;              (funcall (car procs) env)
+;;              ...)))
+;;   (lambda (env)
+;;     (execute-sequence '(expr) env)))
+;;
+;;; i.e., function call, CDR, NULL, IF, CAR, function call.
+;;;
+;;; The same with the original version is just EXPR.
+
+;;; When we have two expressions, Alyssa's version gives:
+;;; function call, CDR, NULL, IF, CAR, function call, CDR,
+;;; function call, CDR, NULL, IF, CAR, function call.
+;;; The original version is just 2 function calls.
+
+;;; Exercise 4.23 END
+
+;;; Exercise 4.24 START
+
+;;; Use the Y-combinator for benchmarking.
+;;; The fibonacci example is quite CPU-intensive without memoization.
+(defparameter *efficiency-test*
+  '(begin
+    (define (Y f)
+      ((lambda (x) (f (lambda (y) ((x x) y))))
+       (lambda (x) (f (lambda (y) ((x x) y))))))
+    (let ((fib (lambda (f)
+                 (lambda (n)
+                   (if (< n 3)
+                       1
+                       (+ (f (- n 1)) (f (- n 2))))))))
+      (display ((Y fib) 35)))))
+
+#+nil
+(progn (time (%eval *efficiency-test* *the-global-environment*))
+       (time (eval-2 *efficiency-test* *the-global-environment*))
+       (time (analyze *efficiency-test*)))
+
+;;; Results:
+;;; %EVAL  : 36.5s, ~3.4GB CONSed
+;;; EVAL-2 : 26.8s, ~4.3GB CONSed
+;;; ANALYZE: 00.0s, ~4.0KB CONSed
+
+;;; More than 25% speedup. But  why does it CONS more?
+;;; As a rough estimate, %EVAL spends one-fourth of its time analyzing.
+
+;;; Exercise 4.24 END
+
+
+;;; Section 4.2.1
+
+;;; Exercise 4.25 START
+
+;;; In applicative order evaluation it will be an infinite recursion.
+;;; With normal order it would work.
+
+;;; Exercise 4.25 END
+
+;;; Exercise 4.26 START
+
+(defun unless-predicate (exp)
+  (cadr exp))
+
+(defun unless-consequent (exp)
+  (caddr exp))
+
+(defun unless-alternative (exp)
+  (if (not (null (cdddr exp)))
+      (cadddr exp)
+      'false))
+
+(defun eval-unless (exp env)
+  (if (falsep (%eval (unless-predicate exp) env))
+      (%eval (unless-consequent exp) env)
+      (%eval (unless-alternative exp) env)))
+
+(install-function 'unless #'eval-unless)
+
+;;; We may need UNLESS as a procedure, if we want to pass it as a value.
+;;; Why would we want to do that?
+;;; Maybe there is a flag whether we should use reverse logic:
+;;;   ((if flag if unless) pred ...)
+;;; Although in this case we could also say:
+;;;   (if (if flag pred (not pred)) ...)
+
+;;; Exercise 4.26 END
+
+
+;;; Section 4.2.2
+
 
 ;;Local Variables:
 ;;eval: (progn
