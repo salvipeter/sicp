@@ -7801,7 +7801,8 @@ FINAL is a function taking no arguments, called when not found."
 
 (defparameter *primitive-procedures*
   (mapcar #'lisp->scheme
-          `(car cdr cadr cons list assoc + - * / (display print)
+          `(car cdr cadr cons list assoc + - * /
+            (display prin1) (newline terpri)
             (null? ,(tfify #'null)) (eq? ,(tfify #'eq))
             (< ,(tfify #'<)) (> ,(tfify #'>)) (= ,(tfify #'=)))))
 
@@ -8264,6 +8265,416 @@ FINAL is a function taking no arguments, called when not found."
 
 
 ;;; Section 4.2.2
+
+(defun eval-3 (exp env)
+  "With `thunks'."
+  (cond ((self-evaluating-p exp) exp)
+        ((variablep exp) (lookup-variable-value exp env))
+        ((quotedp exp) (text-of-quotation exp))
+        ((assignmentp exp) (eval-assignment-1 exp env))
+        ((definitionp exp) (eval-definition-1 exp env))
+        ((ifp exp) (eval-if-1 exp env))
+        ((lambdap exp)
+         (make-procedure (lambda-parameters exp)
+                         (lambda-body exp)
+                         env))
+        ((beginp exp) (eval-sequence-1 (begin-actions exp) env))
+        ((condp exp) (eval-3 (cond->if exp) env))
+        ((applicationp exp)
+         (apply-1 (actual-value (operator exp) env)
+                  (operands exp)
+                  env))
+        (t (error "Unknown expression type in ~a -- EVAL" exp))))
+
+(defun actual-value (exp env)
+  (force-it (eval-3 exp env)))
+
+(defun apply-1 (procedure arguments env)
+  "Delaying/forcing arguments."
+  (cond ((primitive-procedure-p procedure)
+         (apply-primitive-procedure
+          procedure
+          (list-of-arg-values arguments env)))
+        ((compound-procedure-p procedure)
+         (eval-sequence-1
+          (procedure-body procedure)
+          (extend-environment
+           (procedure-parameters procedure)
+           (list-of-delayed-args arguments env)
+           (procedure-environment procedure))))
+        (t (error "Unknown procedure type in ~a -- APPLY" procedure))))
+
+(defun list-of-arg-values (exps env)
+  (if (no-operands-p exps)
+      '()
+      (cons (actual-value (first-operand exps) env)
+            (list-of-arg-values (rest-operands exps)
+                                env))))
+
+(defun list-of-delayed-args (exps env)
+  (if (no-operands-p exps)
+      '()
+      (cons (delay-it (first-operand exps) env)
+            (list-of-delayed-args (rest-operands exps)
+                                  env))))
+
+(defun eval-if-1 (exp env)
+  "Uses ACTUAL-VALUE instead EVAL."
+  (if (truep (actual-value (if-predicate exp) env))
+      (eval-3 (if-consequent exp) env)
+      (eval-3 (if-alternative exp) env)))
+
+(defparameter *input-prompt-1* ";;; L-Eval input:")
+(defparameter *output-prompt-1* ";;; L-Eval value:")
+
+(defun driver-loop-1 ()
+  "Uses ACTUAL-VALUE instead EVAL."
+  (prompt-for-input *input-prompt-1*)
+  (let* ((input (read))
+         (output (actual-value input *the-global-environment*)))
+    (announce-output *output-prompt-1*)
+    (user-print output))
+  (driver-loop-1))
+
+(defun force-it-1 (obj)
+  "Without memoization."
+  (if (thunkp obj)
+      (actual-value (thunk-exp obj) (thunk-env obj))
+      obj))
+
+(defun delay-it (exp env)
+  (list 'thunk exp env))
+
+(defun thunkp (obj)
+  (tagged-list-p obj 'thunk))
+
+(defun thunk-exp (thunk)
+  (cadr thunk))
+
+(defun thunk-env (thunk)
+  (caddr thunk))
+
+(defun evaluated-thunk-p (obj)
+  (tagged-list-p obj 'evaluated-thunk))
+
+(defun thunk-value (evaluated-thunk)
+  (cadr evaluated-thunk))
+
+(defun force-it (obj)
+  (cond ((thunkp obj)
+         (let ((result (actual-value (thunk-exp obj)
+                                     (thunk-env obj))))
+           (setf (car obj) 'evaluated-thunk
+                 (cadr obj) result
+                 (cddr obj) '())
+           result))
+        ((evaluated-thunk-p obj)
+         (thunk-value obj))
+        (t obj)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Some code duplication from Section 4.1.1, ;;;
+;;; to make EVAL-3 / DRIVER-LOOP-1 work.      ;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun eval-sequence-1 (exps env)
+  (cond ((last-exp-p exps) (eval-3 (first-exp exps) env))
+        (t (eval-3 (first-exp exps) env)
+           (eval-sequence-1 (rest-exps exps) env))))
+
+(defun eval-assignment-1 (exp env)
+  (set-variable-value (assignment-variable exp)
+                      (eval-3 (assignment-value exp) env)
+                      env)
+  'ok)
+
+(defun eval-definition-1 (exp env)
+  (define-variable (definition-variable exp)
+                   (eval-3 (definition-value exp) env)
+                   env)
+  'ok)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Code duplication ends. ;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;; Exercise 4.27 START
+
+;;; Responses: 1, 10, 2
+;;; Explanation: I've tried it :)
+
+;;; The definition
+;;;   (define w (id (id 10)))
+;;; runs the outer ID, thus it sets COUNT to 1,
+;;; and sets W to '(THUNK (ID 10) ENV).
+;;; Evaluating W forces the thunk,
+;;; running ID once again, thus setting COUNT to 2.
+
+;;; Exercise 4.27 END
+
+;;; Exercise 4.28 START
+
+;;; This wouldn't work with a simple EVAL:
+
+#+nil
+(eval-3
+ '(begin
+   (define (id x) x)
+   ((id null?) '()))
+ *the-global-environment*)
+
+;;; Because NULL? is still inside a THUNK.
+
+;;; Exercise 4.28 END
+
+;;; Exercise 4.29 START
+
+;;; Program much slower without memoization:
+#+nil
+(eval-3
+ '(begin
+   (define (fib n)
+     (if (< n 3)
+         1
+         (+ (fib (- n 1)) (fib (- n 2)))))
+   (fib (fib 8)))
+ *the-global-environment*)
+
+;;; Responses with memoization: 100, 1
+;;; Responses without memoization: 100, 2
+
+;;; Exercise 4.29 END
+
+;;; Exercise 4.30 START
+
+(defun eval-sequence-2 (exps env)
+  "Uses ACTUAL-VALUE."
+  (cond ((last-exp-p exps) (eval-3 (first-exp exps) env))
+        (t (actual-value (first-exp exps) env)
+           (eval-sequence-2 (rest-exps exps) env))))
+
+;;; (a)
+
+#+nil
+(eval-3
+ '(begin
+   (define (for-each proc items)
+     (if (null? items)
+         'done
+         (begin (proc (car items))
+                (for-each proc (cdr items)))))
+   (for-each (lambda (x) (newline) (display x))
+             (list 57 321 88)))
+ *the-global-environment*)
+
+;;; FOR-EACH works, because PROC is used in an application.
+;;; A problem would only appear if a function application
+;;; is given as an argument, which is then only EVALed.
+
+;;; (b)
+
+#+nil
+(eval-3
+ '(begin
+   (define (p1 x)
+     (set! x (cons x '(2)))
+     x)
+   (define (p2 x)
+     (define (p e)
+       e
+       x)
+     (p (set! x (cons x '(2)))))
+   (display (p1 1))
+   (newline)
+   (display (p2 1))
+   (newline))
+ *the-global-environment*)
+
+;;; Results of the original: (1 2), 1
+;;; Results of Cy's version: (1 2), (1 2)
+
+;;; The problem with the original version is
+;;; that inside P, the function is treated as
+;;; a variable, so E just results in a thunk,
+;;; and no real computation is done.
+
+;;; (c)
+
+;;; In part (a) the arguments to FOR-EACH
+;;; are used in an application, which eventually
+;;; uses ACTUAL-VALUE, whether we explicitly call it or not.
+
+;;; (d)
+
+;;; The one in the text looks logical to me.
+;;; We can use a function to force the value, when needed:
+;;;   (define (run! x) (null? x) 'ok)
+
+#+nil
+(eval-3
+ '(begin
+   (define (run! x) (null? x) 'ok)
+   (define (p1 x)
+     (set! x (cons x '(2)))
+     x)
+   (define (p2 x)
+     (define (p e)
+       (run! e)
+       x)
+     (p (set! x (cons x '(2)))))
+   (display (p1 1))
+   (newline)
+   (display (p2 1))
+   (newline))
+ *the-global-environment*)
+
+;;; Exercise 4.30 END
+
+;;; Exercise 4.31 START
+
+;;; We will use three types of thunks:
+;;; THUNK, MEMOIZING-THUNK, EVALUATED-THUNK
+
+;;; A procedure now stores for every argument
+;;; whether it is lazy, lazy-memo, or normal evaluation.
+
+(defun memoize-it (exp env)
+  (list 'memoizing-thunk exp env))
+
+(defun memoizing-thunkp (obj)
+  (tagged-list-p obj 'memoizing-thunk))
+
+(defun procedure-parameters-2 (p)
+  (mapcar (lambda (x) (if (listp x) (car x) x))
+          (procedure-parameters p)))
+
+(defun procedure-delaying (p)
+  (mapcar (lambda (x) (and (listp x) (cadr x)))
+          (procedure-parameters p)))
+
+(defun rest-delays (delays)
+  (cdr delays))
+
+(defun list-of-optionally-delayed-args (delays exps env)
+  (if (no-operands-p exps)
+      '()
+      (let ((exp (first-operand exps)))
+        (cons (case (car delays)
+                (lazy (delay-it exp env))
+                (memoizing-lazy (memoize-it exp env))
+                (t (actual-value-1 exp env)))
+              (list-of-optionally-delayed-args
+               (rest-delays delays) (rest-operands exps) env)))))
+
+(defun apply-2 (procedure arguments env)
+  "Calls LIST-OF-OPTIONALLY-DELAYED-ARGS."
+  (cond ((primitive-procedure-p procedure)
+         (apply-primitive-procedure
+          procedure
+          (list-of-arg-values-1 arguments env)))
+        ((compound-procedure-p procedure)
+         (eval-sequence-3
+          (procedure-body procedure)
+          (extend-environment
+           (procedure-parameters-2 procedure)
+           (list-of-optionally-delayed-args
+            (procedure-delaying procedure) arguments env)
+           (procedure-environment procedure))))
+        (t (error "Unknown procedure type in ~a -- APPLY" procedure))))
+
+(defun force-it-2 (obj)
+  "Uses THUNK, MEMOIZING-THUNK and EVALUATED-THUNK."
+  (cond ((thunkp obj)
+         (actual-value-1 (thunk-exp obj) (thunk-env obj)))
+        ((memoizing-thunkp obj)
+         (let ((result (actual-value-1 (thunk-exp obj)
+                                       (thunk-env obj))))
+           (setf (car obj) 'evaluated-thunk
+                 (cadr obj) result
+                 (cddr obj) '())
+           result))
+        ((evaluated-thunk-p obj)
+         (thunk-value obj))
+        (t obj)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; The functions below are just updated to call ;;;
+;;; the correct versions of other functions.     ;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun eval-4 (exp env)
+  (cond ((self-evaluating-p exp) exp)
+        ((variablep exp) (lookup-variable-value exp env))
+        ((quotedp exp) (text-of-quotation exp))
+        ((assignmentp exp) (eval-assignment-2 exp env))
+        ((definitionp exp) (eval-definition-2 exp env))
+        ((ifp exp) (eval-if-2 exp env))
+        ((lambdap exp)
+         (make-procedure (lambda-parameters exp)
+                         (lambda-body exp)
+                         env))
+        ((beginp exp) (eval-sequence-3 (begin-actions exp) env))
+        ((condp exp) (eval-4 (cond->if exp) env))
+        ((applicationp exp)
+         (apply-2 (actual-value-1 (operator exp) env)
+                  (operands exp)
+                  env))
+        (t (error "Unknown expression type in ~a -- EVAL" exp))))
+
+(defun actual-value-1 (exp env)
+  (force-it-2 (eval-4 exp env)))
+
+(defun list-of-arg-values-1 (exps env)
+  (if (no-operands-p exps)
+      '()
+      (cons (actual-value-1 (first-operand exps) env)
+            (list-of-arg-values-1 (rest-operands exps)
+                                  env))))
+
+(defun eval-if-2 (exp env)
+  (if (truep (actual-value-1 (if-predicate exp) env))
+      (eval-4 (if-consequent exp) env)
+      (eval-4 (if-alternative exp) env)))
+
+
+(defun eval-sequence-3 (exps env)
+  (cond ((last-exp-p exps) (eval-4 (first-exp exps) env))
+        (t (eval-4 (first-exp exps) env)
+           (eval-sequence-3 (rest-exps exps) env))))
+
+(defun eval-assignment-2 (exp env)
+  (set-variable-value (assignment-variable exp)
+                      (eval-4 (assignment-value exp) env)
+                      env)
+  'ok)
+
+(defun eval-definition-2 (exp env)
+  (define-variable (definition-variable exp)
+                   (eval-4 (definition-value exp) env)
+                   env)
+  'ok)
+
+;;;;;;;;;;;;
+;;; Test ;;;
+;;;;;;;;;;;;
+
+#+nil
+(eval-4
+ '(begin
+   (define count 0)
+   (define (f a (b lazy) (c lazy-memo) (d lazy))
+     (list a b c a b c))
+   (f 1 2 3 (/ 1 0))                    ; no error
+   (f 1 (set! count (+ count 1)) 0 0)
+   (display count)                      ; 2 (B is evaluated twice)
+   (f 1 0 (set! count (+ count 1)) 0)
+   (display count))                     ; 3 (C is evaluated once)
+ *the-global-environment*)
+
+;;; Exercise 4.31 END
+
+
+;;; Section 4.2.3
 
 
 ;;Local Variables:
