@@ -8270,7 +8270,7 @@ FINAL is a function taking no arguments, called when not found."
   "With `thunks'."
   (cond ((self-evaluating-p exp) exp)
         ((variablep exp) (lookup-variable-value exp env))
-        ((quotedp exp) (text-of-quotation exp))
+        ((quotedp exp) (text-of-quotation-1 exp env)) ; see Exercise 4.33
         ((assignmentp exp) (eval-assignment-1 exp env))
         ((definitionp exp) (eval-definition-1 exp env))
         ((ifp exp) (eval-if-1 exp env))
@@ -8414,10 +8414,11 @@ FINAL is a function taking no arguments, called when not found."
 
 ;;; Exercise 4.28 START
 
-;;; This wouldn't work with a simple EVAL:
+;;; This wouldn't work, if EVAL-3 had
+;;; EVAL-3 instead of ACTUAL-VALUE:
 
 #+nil
-(eval-3
+(actual-value
  '(begin
    (define (id x) x)
    ((id null?) '()))
@@ -8431,7 +8432,7 @@ FINAL is a function taking no arguments, called when not found."
 
 ;;; Program much slower without memoization:
 #+nil
-(eval-3
+(actual-value
  '(begin
    (define (fib n)
      (if (< n 3)
@@ -8456,7 +8457,7 @@ FINAL is a function taking no arguments, called when not found."
 ;;; (a)
 
 #+nil
-(eval-3
+(actual-value
  '(begin
    (define (for-each proc items)
      (if (null? items)
@@ -8474,7 +8475,7 @@ FINAL is a function taking no arguments, called when not found."
 ;;; (b)
 
 #+nil
-(eval-3
+(actual-value
  '(begin
    (define (p1 x)
      (set! x (cons x '(2)))
@@ -8511,7 +8512,7 @@ FINAL is a function taking no arguments, called when not found."
 ;;;   (define (run! x) (null? x) 'ok)
 
 #+nil
-(eval-3
+(actual-value
  '(begin
    (define (run! x) (null? x) 'ok)
    (define (p1 x)
@@ -8675,6 +8676,147 @@ FINAL is a function taking no arguments, called when not found."
 
 
 ;;; Section 4.2.3
+
+(defparameter *the-lazy-environment* (setup-environment))
+
+(defun install-lazy-lists ()
+  (eval-3
+   '(begin
+     (define (cons x y)
+       (lambda (m) (m x y)))
+     (define (car z)
+       (z (lambda (p q) p)))
+     (define (cdr z)
+       (z (lambda (p q) q)))
+     (define (list-ref items n)
+       (if (= n 0)
+           (car items)
+           (list-ref (cdr items) (- n 1))))
+     (define (map proc items)
+       (if (null? items)
+           '()
+           (cons (proc (car items))
+                 (map proc (cdr items)))))
+     (define (scale-list items factor)
+       (map (lambda (x) (* x factor))
+            items))
+     (define (add-lists list1 list2)
+       (cond ((null? list1) list2)
+             ((null? list2) list1)
+             (else (cons (+ (car list1) (car list2))
+                         (add-lists (cdr list1) (cdr list2))))))
+     (define ones (cons 1 ones))
+     (define integers (cons 1 (add-lists ones integers))))
+   *the-lazy-environment*))
+
+(install-lazy-lists)
+
+(defun driver-loop-2 ()
+  "Uses lazy lists."
+  (prompt-for-input *input-prompt-1*)
+  (let* ((input (read))
+         (output (actual-value input *the-lazy-environment*)))
+    (announce-output *output-prompt-1*)
+    (user-print-1 output))              ; see Exercise 4.34
+  (driver-loop-2))
+
+#+nil
+(actual-value
+ '(begin
+   (define (integral integrand initial-value dt)
+     (define int
+       (cons initial-value
+             (add-lists (scale-list integrand dt)
+                        int)))
+     int)
+   (define (solve f y0 dt)
+     (define y (integral dy y0 dt))
+     (define dy (map f y))
+     y)
+   (list-ref (solve (lambda (x) x) 1 0.001) 1000))
+ *the-lazy-environment*)
+
+;;; Exercise 4.32 START
+
+;;; We can pass `bottom' as a value,
+;;; and it won't cause an error if we don't use it,
+;;; e.g.:
+
+#+nil
+(actual-value
+ '(begin
+   (define lst (cons (/ 1 0) integers))
+   (list-ref lst 5))
+ *the-lazy-environment*)
+
+;;; Exercise 4.32 END
+
+;;; Exercise 4.33 START
+
+(defun text-of-quotation-1 (exp env)
+  (let ((quoted (cadr exp)))
+    (if (consp quoted)
+        (eval-3 `(cons (quote ,(car quoted))
+                       (quote ,(cdr quoted)))
+                env)
+        quoted)))
+
+#+nil
+(actual-value
+ '(car '(a b c))
+ *the-lazy-environment*)
+
+;;; Exercise 4.33 END
+
+;;; Exercise 4.34 START
+
+;;; Simple solution:
+;;; try to display every compound procedure as a lazy list,
+;;; and revert to procedure display if an error is signalled.
+
+(defun collect-lazy-list (obj max)
+  (let* ((result '())
+         (sym (gensym))
+         (env (extend-environment (list sym) (list obj) *the-lazy-environment*)))
+    (labels ((rec (i)
+               (push (actual-value `(list-ref ,sym ,i) env) result)
+               (when (< i (1- max))
+                 (rec (1+ i)))))
+      (handler-case (rec 0) (condition () t))
+      (nreverse result))))
+
+(defun user-print-1 (object)
+  (if (compound-procedure-p object)
+      (let ((lst (collect-lazy-list object 10)))
+        (if lst
+            (progn
+              (princ "( ")
+              (dolist (x lst)
+                (user-print-1 x)
+                (princ " "))
+              (princ ")"))
+            (print (list 'compound-procedure
+                         (procedure-parameters object)
+                         (procedure-body object)
+                         '<procedure-env>))))
+      (princ object)))
+
+#+nil
+(progn
+  (user-print-1
+   (actual-value
+    'integers
+    *the-lazy-environment*))
+  (terpri)
+  (user-print-1
+   (actual-value
+    '(quote (a (b c) d e))
+    *the-lazy-environment*)))
+
+;;; Exercise 4.34 END
+
+
+;;; Section 4.3.1
 
 
 ;;Local Variables:
