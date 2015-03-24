@@ -7801,8 +7801,8 @@ FINAL is a function taking no arguments, called when not found."
 
 (defparameter *primitive-procedures*
   (mapcar #'lisp->scheme
-          `(car cdr cadr cons list assoc + - * / abs
-            (display prin1) (newline terpri)
+          `(car cdr cadr cons list length assoc + - * / abs random
+            list-ref (display prin1) (newline terpri)
             (not ,(tfify #'falsep)) (null? ,(tfify #'null))
             (eq? ,(tfify #'eq)) (equal? ,(tfify #'equal))
             (< ,(tfify #'<)) (> ,(tfify #'>)) (= ,(tfify #'=)))))
@@ -8847,26 +8847,29 @@ FINAL is a function taking no arguments, called when not found."
              (lambda () 'failed))
     (nreverse results)))
 
-(defun install-ambiguity ()
-  (ambrun
-   '(begin
-     (define (require p)
-       (if (not p) (amb)))
-     (define (an-element-of items)
-       (require (not (null? items)))
-       (amb (car items) (an-element-of (cdr items))))
-     (define (an-integer-starting-from n)
-       (amb n (an-integer-starting-from (+ n 1)))))))
+(defparameter *ambiguity-installer* '())
 
-(install-ambiguity)
+(defun install-ambiguity ()
+  (ambrun `(begin ,@*ambiguity-installer*)))
+
+(push '(begin
+        (define (require p)
+          (if (not p) (amb)))
+        (define (an-element-of items)
+          (require (not (null? items)))
+          (amb (car items) (an-element-of (cdr items))))
+        (define (an-integer-starting-from n)
+          (amb n (an-integer-starting-from (+ n 1)))))
+      *ambiguity-installer*)
 
 ;;; Exercise 4.35 START
 
-(ambrun
+(push
  '(define (an-integer-between low high)
    (if (> low high)
        (amb)
-       (amb low (an-integer-between (+ low 1) high)))))
+       (amb low (an-integer-between (+ low 1) high))))
+ *ambiguity-installer*)
 
 #+nil
 (amball
@@ -8915,7 +8918,7 @@ FINAL is a function taking no arguments, called when not found."
 
 ;;; Section 4.3.2
 
-(ambrun
+(push
  '(begin
    (define (member x lst)
      (cond ((null? lst) false)
@@ -8925,7 +8928,8 @@ FINAL is a function taking no arguments, called when not found."
      (cond ((null? items) true)
            ((null? (cdr items)) true)
            ((member (car items) (cdr items)) false)
-           (else (distinct? (cdr items)))))))
+           (else (distinct? (cdr items))))))
+ *ambiguity-installer*)
 
 #+nil
 (ambrun
@@ -9192,21 +9196,124 @@ FINAL is a function taking no arguments, called when not found."
 
 ;;; Exercise 4.45 START
 
+#+nil
+(amball '(parse '(the professor lectures to the student in the class with the cat)))
+
+;; (SENTENCE (SIMPLE-NOUN-PHRASE (ARTICLE THE) (NOUN PROFESSOR))
+;;           (VERB-PHRASE
+;;            (VERB-PHRASE
+;;             (VERB-PHRASE (VERB LECTURES)
+;;                          (PREP-PHRASE (PREP TO)
+;;                                       (SIMPLE-NOUN-PHRASE (ARTICLE THE) (NOUN STUDENT))))
+;;             (PREP-PHRASE (PREP IN) (SIMPLE-NOUN-PHRASE (ARTICLE THE) (NOUN CLASS))))
+;;            (PREP-PHRASE (PREP WITH) (SIMPLE-NOUN-PHRASE (ARTICLE THE) (NOUN CAT)))))
+
+;;; 1. He lectures in the class, and he lectures with a cat.
+
+;; (SENTENCE (SIMPLE-NOUN-PHRASE (ARTICLE THE) (NOUN PROFESSOR))
+;;           (VERB-PHRASE
+;;            (VERB-PHRASE (VERB LECTURES)
+;;                         (PREP-PHRASE (PREP TO)
+;;                                      (SIMPLE-NOUN-PHRASE (ARTICLE THE) (NOUN STUDENT))))
+;;            (PREP-PHRASE (PREP IN)
+;;                         (NOUN-PHRASE (SIMPLE-NOUN-PHRASE (ARTICLE THE) (NOUN CLASS))
+;;                                      (PREP-PHRASE (PREP WITH)
+;;                                                   (SIMPLE-NOUN-PHRASE (ARTICLE THE) (NOUN CAT)))))))
+
+;;; 2. He lectures in that class where there is a cat.
+
+;; (SENTENCE (SIMPLE-NOUN-PHRASE (ARTICLE THE) (NOUN PROFESSOR))
+;;           (VERB-PHRASE
+;;            (VERB-PHRASE (VERB LECTURES)
+;;                         (PREP-PHRASE (PREP TO)
+;;                                      (NOUN-PHRASE (SIMPLE-NOUN-PHRASE (ARTICLE THE) (NOUN STUDENT))
+;;                                                   (PREP-PHRASE (PREP IN)
+;;                                                                (SIMPLE-NOUN-PHRASE (ARTICLE THE) (NOUN CLASS))))))
+;;            (PREP-PHRASE (PREP WITH) (SIMPLE-NOUN-PHRASE (ARTICLE THE) (NOUN CAT)))))
+
+;;; 3. He lectures that student who is in the class, and he lectures with a cat.
+
+;; (SENTENCE (SIMPLE-NOUN-PHRASE (ARTICLE THE) (NOUN PROFESSOR))
+;;           (VERB-PHRASE (VERB LECTURES)
+;;                        (PREP-PHRASE (PREP TO)
+;;                                     (NOUN-PHRASE
+;;                                      (NOUN-PHRASE (SIMPLE-NOUN-PHRASE (ARTICLE THE) (NOUN STUDENT))
+;;                                                   (PREP-PHRASE (PREP IN)
+;;                                                                (SIMPLE-NOUN-PHRASE (ARTICLE THE) (NOUN CLASS))))
+;;                                      (PREP-PHRASE (PREP WITH)
+;;                                                   (SIMPLE-NOUN-PHRASE (ARTICLE THE) (NOUN CAT)))))))
+
+;;; 4. He lectures that student who is in the class, and who is with a cat.
+
+;; (SENTENCE (SIMPLE-NOUN-PHRASE (ARTICLE THE) (NOUN PROFESSOR))
+;;           (VERB-PHRASE (VERB LECTURES)
+;;                        (PREP-PHRASE (PREP TO)
+;;                                     (NOUN-PHRASE (SIMPLE-NOUN-PHRASE (ARTICLE THE) (NOUN STUDENT))
+;;                                                  (PREP-PHRASE (PREP IN)
+;;                                                               (NOUN-PHRASE (SIMPLE-NOUN-PHRASE (ARTICLE THE) (NOUN CLASS))
+;;                                                                            (PREP-PHRASE (PREP WITH)
+;;                                                                                         (SIMPLE-NOUN-PHRASE (ARTICLE THE) (NOUN CAT)))))))))
+
+;;; 5. He lectures that student who is in that class which has a cat.
+
 ;;; Exercise 4.45 END
 
 ;;; Exercise 4.46 START
+
+;;; *UNPARSED* is consumed from left to right.
+;;; With right-to-left evaluation, this should be rewritten, as well.
 
 ;;; Exercise 4.46 END
 
 ;;; Exercise 4.47 START
 
+;;; The new version does not really work,
+;;; it has an infinite recursion, that comes into play
+;;; as soon as the first choice fails.
+
+;;; If we swap the order of choices,
+;;; we will get into the infinite loop right away.
+
 ;;; Exercise 4.47 END
 
 ;;; Exercise 4.48 START
 
+#+nil
+(ambrun
+ '(begin
+   (define adjectives '(adjective good bad clever stupid white black))
+   (define (parse-simple-noun-phrase)
+     (amb (list 'simple-noun-phrase
+                (parse-word articles)
+                (parse-word nouns))
+          (list 'adjectival-noun-phrase
+                (parse-word articles)
+                (parse-word adjectives)
+                (parse-word nouns))))
+   (parse '(the bad student with the black cat sleeps in the class))))
+
 ;;; Exercise 4.48 END
 
 ;;; Exercise 4.49 START
+
+(push
+ '(define (random-select lst)
+   (list-ref lst (random (length lst))))
+ *ambiguity-installer*)
+
+#+nil
+(ambrun
+ '(begin
+   (define (parse-word word-list)
+     (list (car word-list) (random-select (cdr word-list))))
+   (parse '())))
+
+;;; The professor eats.
+;;; The professor eats to the class.
+;;; The professor eats to the class to the student.
+;;; The professor eats to the class to the student to the cat.
+;;; The professor eats to the class to the student to the cat with the class.
+;;; The professor eats to the class to the student to the cat with the class by a student.
 
 ;;; Exercise 4.49 END
 
@@ -9224,8 +9331,20 @@ FINAL is a function taking no arguments, called when not found."
   (cond ((self-evaluating-p exp) (analyze-self-evaluating-1 exp))
         ((quotedp exp) (analyze-quoted-1 exp))
         ((ambp exp) (analyze-amb exp))
+;;; Exercise 4.50 START
+
+        ;; See also below.
+        ((rambp exp) (analyze-ramb exp))
+
+;;; Exercise 4.50 END
         ((variablep exp) (analyze-variable-1 exp))
         ((assignmentp exp) (analyze-assignment-1 exp))
+;;; Exercise 4.51 START
+
+        ;; See also below.
+        ((permanent-set-p exp) (analyze-permanent-set exp))
+
+;;; Exercise 4.51 END
         ((definitionp exp) (analyze-definition-1 exp))
         ((ifp exp) (analyze-if-1 exp))
         ((lambdap exp) (analyze-lambda-1 exp))
@@ -9403,9 +9522,47 @@ Restores the original value at a failure."
 
 ;;; Exercise 4.50 START
 
+;;; See also above.
+
+(defun rambp (exp)
+  (tagged-list-p exp 'ramb))
+
+(defun ramb-choices (exp)
+  (cdr exp))
+
+(defun analyze-ramb (exp)
+  (let ((cprocs (mapcar #'analyze-1 (ramb-choices exp))))
+    (lambda (env succeed fail)
+      (labels ((try-next (choices)
+                 (if (null choices)
+                     (funcall fail)
+                     (let ((i (random (length choices))))
+                       (funcall (nth i choices) env succeed
+                                (lambda ()
+                                  (try-next (append (subseq choices 0 i)
+                                                    (subseq choices (1+ i))))))))))
+        (try-next cprocs)))))
+
 ;;; Exercise 4.50 END
 
 ;;; Exercise 4.51 START
+
+;;; See also above.
+
+(defun permanent-set-p (exp)
+  (tagged-list-p exp 'permanent-set!))
+
+(defun analyze-permanent-set (exp)
+  (let ((var (assignment-variable exp))
+        (vproc (analyze-1 (assignment-value exp))))
+    (lambda (env succeed fail)
+      (funcall vproc env
+               (lambda (val fail2)
+                 (set-variable-value var val env)
+                 (funcall succeed 'ok fail2))
+               fail))))
+
+;;; With SET! it would return (A B 1) and (A C 1).
 
 ;;; Exercise 4.51 END
 
@@ -9420,6 +9577,8 @@ Restores the original value at a failure."
 ;;; Exercise 4.54 START
 
 ;;; Exercise 4.54 END
+
+(install-ambiguity)
 
 
 ;;; Section 4.4.1
