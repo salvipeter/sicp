@@ -7801,9 +7801,10 @@ FINAL is a function taking no arguments, called when not found."
 
 (defparameter *primitive-procedures*
   (mapcar #'lisp->scheme
-          `(car cdr cadr cons list assoc + - * /
+          `(car cdr cadr cons list assoc + - * / abs
             (display prin1) (newline terpri)
-            (null? ,(tfify #'null)) (eq? ,(tfify #'eq))
+            (not ,(tfify #'falsep)) (null? ,(tfify #'null))
+            (eq? ,(tfify #'eq)) (equal? ,(tfify #'equal))
             (< ,(tfify #'<)) (> ,(tfify #'>)) (= ,(tfify #'=)))))
 
 (defun primitive-procedure-names ()
@@ -8079,8 +8080,8 @@ FINAL is a function taking no arguments, called when not found."
         ((condp exp) (analyze (cond->if exp)))
 ;;; Exercise 4.22 START
 
-        ;; The condition should be abstracted into LETP
-        ((tagged-list-p exp 'let) (analyze (let->combination exp)))
+        ;; See also below.
+        ((letp exp) (analyze (let->combination exp)))
 
 ;;; Exercise 4.22 END
         ((applicationp exp) (analyze-application exp))
@@ -8162,6 +8163,14 @@ FINAL is a function taking no arguments, called when not found."
                                       args
                                       (procedure-environment proc))))
         (t (error "Unknown procedure type in ~a -- EXECUTE-APPLICATION" proc))))
+
+;;; Exercise 4.22 START
+
+;;; See also above.
+(defun letp (exp)
+  (tagged-list-p exp 'let))
+
+;;; Exercise 4.22 END
 
 ;;; Exercise 4.23 START
 
@@ -8817,6 +8826,603 @@ FINAL is a function taking no arguments, called when not found."
 
 
 ;;; Section 4.3.1
+
+(defparameter *the-ambiguous-environment* (setup-environment))
+
+(defun ambrun (exp)
+  "For convenience - gets the first solution."
+  (ambeval exp *the-ambiguous-environment*
+           (lambda (val fail)
+             (declare (ignore fail))
+             val)
+           (lambda () 'failed)))
+
+(defun amball (exp)
+  "For convenience - gets all solutions."
+  (let ((results '()))
+    (ambeval exp *the-ambiguous-environment*
+             (lambda (val next)
+               (push val results)
+               (funcall next))
+             (lambda () 'failed))
+    (nreverse results)))
+
+(defun install-ambiguity ()
+  (ambrun
+   '(begin
+     (define (require p)
+       (if (not p) (amb)))
+     (define (an-element-of items)
+       (require (not (null? items)))
+       (amb (car items) (an-element-of (cdr items))))
+     (define (an-integer-starting-from n)
+       (amb n (an-integer-starting-from (+ n 1)))))))
+
+(install-ambiguity)
+
+;;; Exercise 4.35 START
+
+(ambrun
+ '(define (an-integer-between low high)
+   (if (> low high)
+       (amb)
+       (amb low (an-integer-between (+ low 1) high)))))
+
+#+nil
+(amball
+ '(begin
+   (define (a-pythagorean-triple-between low high)
+     (let ((i (an-integer-between low high)))
+       (let ((j (an-integer-between i high)))
+         (let ((k (an-integer-between j high)))
+           (require (= (+ (* i i) (* j j)) (* k k)))
+           (list i j k)))))
+   (a-pythagorean-triple-between 5 20)))
+
+;;; Exercise 4.35 END
+
+;;; Exercise 4.36 START
+
+;;; The problem is that we have nested ambiguities,
+;;; and the current chronological backtrack wants to
+;;; try all of the innermost ambiguity before trying
+;;; a different value in another one.
+
+;;; We can do it, however, by increasing the `high'
+;;; value step-by-step.
+
+#+nil
+(ambrun
+ '(begin
+   (define (a-pythagorean-triple-between low high)
+     (let ((i (an-integer-between low high)))
+       (let ((j (an-integer-between i high)))
+         (require (= (+ (* i i) (* j j)) (* high high)))
+         (list i j high))))
+   (define (a-pythagorean-triple-from low)
+     (let ((high (an-integer-starting-from low)))
+       (a-pythagorean-triple-between low high)))))
+
+;;; Exercise 4.36 END
+
+;;; Exercise 4.37 START
+
+;;; Yes, he is correct.
+;;; The possibilities involving K are eliminated.
+
+;;; Exercise 4.37 END
+
+
+;;; Section 4.3.2
+
+(ambrun
+ '(begin
+   (define (member x lst)
+     (cond ((null? lst) false)
+           ((equal? x (car lst)) lst)
+           (else (member x (cdr lst)))))
+   (define (distinct? items)
+     (cond ((null? items) true)
+           ((null? (cdr items)) true)
+           ((member (car items) (cdr items)) false)
+           (else (distinct? (cdr items)))))))
+
+#+nil
+(ambrun
+ '(let ((baker (amb 1 2 3 4 5))
+        (cooper (amb 1 2 3 4 5))
+        (fletcher (amb 1 2 3 4 5))
+        (miller (amb 1 2 3 4 5))
+        (smith (amb 1 2 3 4 5)))
+   (require
+    (distinct? (list baker cooper fletcher miller smith)))
+   (require (not (= baker 5)))
+   (require (not (= cooper 1)))
+   (require (not (= fletcher 5)))
+   (require (not (= fletcher 1)))
+   (require (> miller cooper))
+   (require (not (= (abs (- smith fletcher)) 1)))
+   (require (not (= (abs (- fletcher cooper)) 1)))
+   (list (list 'baker baker)
+    (list 'cooper cooper)
+    (list 'fletcher fletcher)
+    (list 'miller miller)
+    (list 'smith smith))))
+
+;;; Exercise 4.38 START
+
+;;; Five:
+;; ((BAKER 1) (COOPER 2) (FLETCHER 4) (MILLER 3) (SMITH 5))
+;; ((BAKER 1) (COOPER 2) (FLETCHER 4) (MILLER 5) (SMITH 3))
+;; ((BAKER 1) (COOPER 4) (FLETCHER 2) (MILLER 5) (SMITH 3))
+;; ((BAKER 3) (COOPER 2) (FLETCHER 4) (MILLER 5) (SMITH 1))
+;; ((BAKER 3) (COOPER 4) (FLETCHER 2) (MILLER 5) (SMITH 1))
+
+;;; Exercise 4.38 END
+
+;;; Exercise 4.39 START
+
+;;; The order may affect the answer, if there are multiple answers.
+;;; In the original problem there is only one, so it doesn't matter.
+;;; Also if you want all the answers, reordering the requirements
+;;; just gives a permutation of the same set of answers.
+
+;;; It has an effect on computation time, though.
+;;; The best ordering is where the most specific requirements come first.
+;;; (If the requirements are of the same complexity.)
+;;; For example, Smith and Fletches can dwell in 5x5=25 flats.
+;;; The `Fletcher != 5' requirement leaves 20 cases,
+;;; while the `|Smith - Fletcher| != 1' requirement leaves only 15,
+;;; so it should be moved forward.
+
+;;; Exercise 4.39 END
+
+;;; Exercise 4.40 START
+
+;;; Without the distinctness requirement, there are 120 solutions.
+;;; With the requirement there is only 1.
+
+#+nil
+(ambrun
+ '(let ((fletcher (amb 2 3 4))
+        (cooper (amb 2 3 4 5)))
+   (require (not (= (abs (- fletcher cooper)) 1)))
+   (require (not (= fletcher cooper)))
+   (let ((smith (amb 1 2 3 4 5)))
+     (require (not (= (abs (- smith fletcher)) 1)))
+     (require (not (member smith (list fletcher cooper))))
+     (let ((baker (amb 1 2 3 4)))
+       (require (not (member baker (list fletcher cooper smith))))
+       (let ((miller (amb 1 2 3 4 5)))
+         (require (> miller cooper))
+         (require (not (member miller (list fletcher cooper smith baker))))
+         (list (list 'baker baker)
+               (list 'cooper cooper)
+               (list 'fletcher fletcher)
+               (list 'miller miller)
+               (list 'smith smith)))))))
+
+;;; Exercise 4.40 END
+
+;;; Exercise 4.41 START
+
+;;; Straightforward translation:
+(defun multiple-dwelling ()
+  (labels ((distinctp (lst)
+             (or (null (rest lst))
+                 (and (not (member (first lst) (rest lst)))
+                      (distinctp (rest lst))))))
+    (loop for baker from 1 to 5 do
+         (loop for cooper from 1 to 5 do
+              (loop for fletcher from 1 to 5 do
+                   (loop for miller from 1 to 5 do
+                        (loop for smith from 1 to 5 do
+                             (when (and (distinctp (list baker cooper fletcher miller smith))
+                                        (/= baker 5)
+                                        (/= cooper 1)
+                                        (/= fletcher 5)
+                                        (> miller cooper)
+                                        (/= (abs (- smith fletcher)) 1)
+                                        (/= (abs (- fletcher cooper)) 1))
+                               (return-from multiple-dwelling
+                                 `((baker ,baker)
+                                   (cooper ,cooper)
+                                   (fletcher ,fletcher)
+                                   (miller ,miller)
+                                   (smith ,smith)))))))))))
+
+;;; Exercise 4.41 END
+
+;;; Exercise 4.42 START
+
+#+nil
+(ambrun
+ '(begin
+   (define (xor a b) (if a (not b) b))
+   (let ((betty (amb 1 2 3 4 5))
+         (ethel (amb 1 2 3 4 5))
+         (joan (amb 1 2 3 4 5))
+         (kitty (amb 1 2 3 4 5))
+         (mary (amb 1 2 3 4 5)))
+     (require
+      (distinct? (list betty ethel joan kitty mary)))
+     (require (xor (= kitty 2) (= betty 3)))
+     (require (xor (= ethel 1) (= joan 2)))
+     (require (xor (= joan 3) (= ethel 5)))
+     (require (xor (= kitty 2) (= mary 4)))
+     (require (xor (= mary 4) (= betty 1)))
+     (list (list 'betty betty)
+           (list 'ethel ethel)
+           (list 'joan joan)
+           (list 'kitty kitty)
+           (list 'mary mary)))))
+
+;; So the solution is: ((BETTY 3) (ETHEL 5) (JOAN 2) (KITTY 1) (MARY 4))
+
+;;; Exercise 4.42 END
+
+;;; Exercise 4.43 START
+
+;;; Solution:
+;;; store CONSes of (daughter . yacht)
+
+#+nil
+(amball
+  '(begin
+    (define (not-same-name x) (not (eq? (car x) (cdr x))))
+    (define (father-of x lst)
+      (if (eq? (car (car lst)) x)
+          (car lst)
+          (father-of x (cdr lst))))
+    (let ((barnacle (cons 'melissa 'gabrielle)))
+      (require (not-same-name barnacle))
+      (let ((moore (cons 'mary-ann 'lorna)))
+        (require (not-same-name moore))
+        (require (not (eq? (car barnacle) (car moore))))
+        (let ((hall (cons (amb 'gabrielle 'lorna 'mary-ann 'melissa 'rosalind) 'rosalind)))
+          (require (not-same-name hall))
+          (require (not (member (car hall) (list (car barnacle) (car moore)))))
+          (let ((downing (cons (amb 'gabrielle 'lorna 'mary-ann 'melissa 'rosalind) 'melissa)))
+            (require (not-same-name downing))
+            (require (not (member (car downing) (list (car barnacle) (car moore) (car hall)))))
+            (let ((parker (cons (amb 'gabrielle 'lorna 'mary-ann 'melissa 'rosalind) 'mary-ann)))
+              (require (not-same-name parker))
+              (require (not (member (car parker)
+                                    (list (car barnacle) (car moore) (car hall) (car downing)))))
+              (require (eq? (car parker)
+                            (cdr (father-of 'gabrielle (list barnacle downing hall moore parker)))))
+              (list (list 'barnacle barnacle)
+                    (list 'downing downing)
+                    (list 'hall hall)
+                    (list 'moore moore)
+                    (list 'parker parker)))))))))
+
+;;; Colonel Downing is the father of Lorna.
+;;; If we don't know Mary-Ann's last name, there are 2 solutions:
+;;; Barnacle => Melissa
+;;; Downing  => Rosalind  / Lorna
+;;; Hall     => Mary-Ann  / Gabrielle
+;;; Moore    => Gabrielle / Mary-Ann
+;;; Parker   => Lorna     / Rosalind
+
+;;; Exercise 4.43 END
+
+;;; Exercise 4.44 START
+
+#+nil
+(ambrun
+ '(begin
+   (define (safe-diagonals q positions i)
+     (cond ((null? positions) true)
+           ((= (abs (- (car positions) q)) i) false)
+           (else (safe-diagonals q (cdr positions) (+ i 1)))))
+   (define (queens positions k)
+     (if (= k 0)
+         positions
+         (let ((q (an-integer-between 1 8)))
+           (require (not (member q positions))) ; not the same row
+           (require (safe-diagonals q positions 1))
+           (queens (cons q positions) (- k 1)))))
+   (queens '() 8)))
+
+;;; Exercise 4.44 END
+
+(defun install-language-parser ()
+  (ambrun
+   '(begin
+     (define (memq x lst)
+       (cond ((null? lst) false)
+             ((eq? x (car lst)) lst)
+             (else (memq x (cdr lst)))))
+     (define nouns '(noun student professor cat class))
+     (define verbs '(verb studies lectures eats sleeps))
+     (define articles '(article the a))
+     (define (parse-sentence-1) ; see a more complete PARSE-SENTENCE below
+       (list 'sentence
+             (parse-noun-phrase)
+             (parse-word verbs)))
+     (define (parse-simple-noun-phrase)
+       (list 'simple-noun-phrase
+             (parse-word articles)
+             (parse-word nouns)))
+     (define (parse-word word-list)
+       (require (not (null? *unparsed*)))
+       (require (memq (car *unparsed*) (cdr word-list)))
+       (let ((found-word (car *unparsed*)))
+         (set! *unparsed* (cdr *unparsed*))
+         (list (car word-list) found-word)))
+     (define *unparsed* '())
+     (define (parse input)
+       (set! *unparsed* input)
+       (let ((sent (parse-sentence)))
+         (require (null? *unparsed*))
+         sent))
+     (define prepositions '(prep for to in by with))
+     (define (parse-prepositional-phrase)
+       (list 'prep-phrase
+             (parse-word prepositions)
+             (parse-noun-phrase)))
+     (define (parse-sentence)
+       (list 'sentence
+             (parse-noun-phrase)
+             (parse-verb-phrase)))
+     (define (parse-verb-phrase)
+       (define (maybe-extend verb-phrase)
+         (amb verb-phrase
+              (maybe-extend (list 'verb-phrase
+                                  verb-phrase
+                                  (parse-prepositional-phrase)))))
+       (maybe-extend (parse-word verbs)))
+     (define (parse-noun-phrase)
+       (define (maybe-extend noun-phrase)
+         (amb noun-phrase
+              (maybe-extend (list 'noun-phrase
+                                  noun-phrase
+                                  (parse-prepositional-phrase)))))
+       (maybe-extend (parse-simple-noun-phrase))))))
+
+#+nil
+(install-language-parser)
+
+#+nil
+(ambrun '(parse '(the student with the cat sleeps in the class)))
+
+#+nil
+(amball '(parse '(the professor lectures to the student with the cat)))
+
+;;; Exercise 4.45 START
+
+;;; Exercise 4.45 END
+
+;;; Exercise 4.46 START
+
+;;; Exercise 4.46 END
+
+;;; Exercise 4.47 START
+
+;;; Exercise 4.47 END
+
+;;; Exercise 4.48 START
+
+;;; Exercise 4.48 END
+
+;;; Exercise 4.49 START
+
+;;; Exercise 4.49 END
+
+
+;;; Section 4.3.3
+
+(defun ambp (exp)
+  (tagged-list-p exp 'amb))
+
+(defun amb-choices (exp)
+  (cdr exp))
+
+(defun analyze-1 (exp)
+  "Added ANALYZE-AMB."
+  (cond ((self-evaluating-p exp) (analyze-self-evaluating-1 exp))
+        ((quotedp exp) (analyze-quoted-1 exp))
+        ((ambp exp) (analyze-amb exp))
+        ((variablep exp) (analyze-variable-1 exp))
+        ((assignmentp exp) (analyze-assignment-1 exp))
+        ((definitionp exp) (analyze-definition-1 exp))
+        ((ifp exp) (analyze-if-1 exp))
+        ((lambdap exp) (analyze-lambda-1 exp))
+        ((beginp exp) (analyze-sequence-1 (begin-actions exp)))
+        ((condp exp) (analyze-1 (cond->if exp)))
+        ((letp exp) (analyze-1 (let->combination exp)))
+        ((applicationp exp) (analyze-application-1 exp))
+        (t (error "Unknown expression type in ~a -- ANALYZE-1" exp))))
+
+(defun ambeval (exp env succeed fail)
+  (funcall (analyze-1 exp) env succeed fail))
+
+(defun analyze-self-evaluating-1 (exp)
+  "With SUCCEED/FAIL arguments."
+  (lambda (env succeed fail)
+    (declare (ignore env))
+    (funcall succeed exp fail)))
+
+(defun analyze-quoted-1 (exp)
+  "With SUCCEED/FAIL arguments."
+  (let ((qval (text-of-quotation exp)))
+    (lambda (env succeed fail)
+      (declare (ignore env))
+      (funcall succeed qval fail))))
+
+(defun analyze-variable-1 (exp)
+  "With SUCCEED/FAIL arguments."
+  (lambda (env succeed fail)
+    (funcall succeed (lookup-variable-value exp env)
+             fail)))
+
+(defun analyze-lambda-1 (exp)
+  "With SUCCEED/FAIL arguments."
+  (let ((vars (lambda-parameters exp))
+        (bproc (analyze-sequence-1 (lambda-body exp))))
+    (lambda (env succeed fail)
+      (funcall succeed (make-procedure vars bproc env)
+               fail))))
+
+(defun analyze-if-1 (exp)
+  "With SUCCEED/FAIL arguments.
+Note that we need separate fails for the predicate
+and the resulting expression."
+  (let ((pproc (analyze-1 (if-predicate exp)))
+        (cproc (analyze-1 (if-consequent exp)))
+        (aproc (analyze-1 (if-alternative exp))))
+    (lambda (env succeed fail)
+      (funcall pproc env
+               (lambda (pred-value fail2)
+                 (if (truep pred-value)
+                     (funcall cproc env succeed fail2)
+                     (funcall aproc env succeed fail2)))
+               fail))))
+
+(defun analyze-sequence-1 (exps)
+  "With SUCCEED/FAIL arguments."
+  (labels ((sequentially (a b)
+             (lambda (env succeed fail)
+               (funcall a env
+                        (lambda (a-value fail2)
+                          (declare (ignore a-value))
+                          (funcall b env succeed fail2))
+                        fail)))
+           (rec (first-proc rest-procs)
+             (if (null rest-procs)
+                 first-proc
+                 (rec (sequentially first-proc (car rest-procs))
+                      (cdr rest-procs)))))
+    (let ((procs (mapcar #'analyze-1 exps)))
+      (if (null procs)
+          (error "Empty sequence -- ANALYZE-1")
+          (rec (car procs) (cdr procs))))))
+
+(defun analyze-definition-1 (exp)
+  "With SUCCEED/FAIL arguments."
+  (let ((var (definition-variable exp))
+        (vproc (analyze-1 (definition-value exp))))
+    (lambda (env succeed fail)
+      (funcall vproc env
+               (lambda (val fail2)
+                 (define-variable var val env)
+                 (funcall succeed 'ok fail2))
+               fail))))
+
+(defun analyze-assignment-1 (exp)
+  "With SUCCEED/FAIL arguments.
+Restores the original value at a failure."
+  (let ((var (assignment-variable exp))
+        (vproc (analyze-1 (assignment-value exp))))
+    (lambda (env succeed fail)
+      (funcall vproc env
+               (lambda (val fail2)
+                 (let ((old-value (lookup-variable-value var env)))
+                   (set-variable-value var val env)
+                   (funcall succeed 'ok
+                            (lambda ()
+                              (set-variable-value var old-value env)
+                              (funcall fail2)))))
+               fail))))
+
+(defun analyze-application-1 (exp)
+  "With SUCCEED/FAIL arguments."
+  (let ((fproc (analyze-1 (operator exp)))
+        (aprocs (mapcar #'analyze-1 (operands exp))))
+    (lambda (env succeed fail)
+      (funcall fproc env
+               (lambda (proc fail2)
+                 (get-args aprocs env
+                           (lambda (args fail3)
+                             (execute-application-1
+                              proc args succeed fail3))
+                           fail2))
+               fail))))
+
+(defun get-args (aprocs env succeed fail)
+  (if (null aprocs)
+      (funcall succeed '() fail)
+      (funcall (car aprocs) env
+               (lambda (arg fail2)
+                 (get-args (cdr aprocs) env
+                           (lambda (args fail3)
+                             (funcall succeed (cons arg args) fail3))
+                           fail2))
+               fail)))
+
+(defun execute-application-1 (proc args succeed fail)
+  "With SUCCEED/FAIL arguments."
+  (cond ((primitive-procedure-p proc)
+         (funcall succeed (apply-primitive-procedure proc args)
+                  fail))
+        ((compound-procedure-p proc)
+         (funcall (procedure-body proc)
+                  (extend-environment (procedure-parameters proc)
+                                      args
+                                      (procedure-environment proc))
+                  succeed fail))
+        (t (error "Unknown procedure type in ~a -- EXECUTE-APPLICATION" proc))))
+
+(defun analyze-amb (exp)
+  (let ((cprocs (mapcar #'analyze-1 (amb-choices exp))))
+    (lambda (env succeed fail)
+      (labels ((try-next (choices)
+                 (if (null choices)
+                     (funcall fail)
+                     (funcall (car choices) env succeed
+                              (lambda () (try-next (cdr choices)))))))
+        (try-next cprocs)))))
+
+(defparameter *input-prompt-2* ";;; Amb-Eval input:")
+(defparameter *output-prompt-2* ";;; Amb-Eval value:")
+
+(defun driver-loop-3 ()
+  "Different solutions using TRY-AGAIN."
+  (labels ((internal-loop (try-again)
+             (prompt-for-input *input-prompt-2*)
+             (let ((input (read)))
+               (if (eq input 'try-again)
+                   (funcall try-again)
+                   (progn
+                     (format t "~%;;; Starting a new problem~%")
+                     (ambeval input *the-ambiguous-environment*
+                              (lambda (val next-alternative)
+                                (announce-output *output-prompt-2*)
+                                (user-print val)
+                                (internal-loop next-alternative))
+                              (lambda ()
+                                (announce-output
+                                 ";;; There are no more values of")
+                                (user-print input)
+                                (driver-loop-3))))))))
+    (internal-loop
+     (lambda ()
+       (format t "~%;;; There is no current problem~%")
+       (driver-loop-3)))))
+
+;;; Exercise 4.50 START
+
+;;; Exercise 4.50 END
+
+;;; Exercise 4.51 START
+
+;;; Exercise 4.51 END
+
+;;; Exercise 4.52 START
+
+;;; Exercise 4.52 END
+
+;;; Exercise 4.53 START
+
+;;; Exercise 4.53 END
+
+;;; Exercise 4.54 START
+
+;;; Exercise 4.54 END
+
+
+;;; Section 4.4.1
 
 
 ;;Local Variables:
