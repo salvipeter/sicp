@@ -6720,6 +6720,12 @@ Coercion is not tried if the arguments have the same type."
 
 ;;; Exercise 3.65 END
 
+(defun stream-append (s1 s2)
+  (if (stream-null s1)
+      s2
+      (cons-stream (stream-car s1)
+                   (stream-append (stream-cdr s1) s2))))
+
 (defun interleave (s1 s2)
   (if (stream-null s1)
       s2
@@ -9649,6 +9655,836 @@ Restores the original value at a failure."
 
 
 ;;; Section 4.4.1
+
+(defun add-assertions (exps)
+  "For convenience."
+  (dolist (exp exps)
+    (let ((q (query-syntax-process exp)))
+      (add-rule-or-assertion q))))
+
+(defun query (exp)
+  "For convenience."
+  (let ((result '())
+        (q (query-syntax-process exp)))
+    (stream-mapc
+     (lambda (x) (push x result))
+     (stream-mapcar
+      (lambda (frame)
+        (instantiate q frame
+                     (lambda (v f)
+                       (declare (ignore f))
+                       (contract-question-mark v))))
+      (qeval q (singleton-stream '()))))
+    result))
+
+#+nil
+(add-assertions
+ '((address (Bitdiddle Ben) (Slumerville (Ridge Road) 10))
+   (job (Bitdiddle Ben) (computer wizard))
+   (salary (Bitdiddle Ben) 60000)
+
+   (address (Hacker Alyssa P) (Cambridge (Mass Ave) 78))
+   (job (Hacker Alyssa P) (computer programmer))
+   (salary (Hacker Alyssa P) 40000)
+   (supervisor (Hacker Alyssa P) (Bitdiddle Ben))
+
+   (address (Fect Cy D) (Cambridge (Ames Street) 3))
+   (job (Fect Cy D) (computer programmer))
+   (salary (Fect Cy D) 35000)
+   (supervisor (Fect Cy D) (Bitdiddle Ben))
+
+   (address (Tweakit Lem E) (Boston (Bay State Road) 22))
+   (job (Tweakit Lem E) (computer technician))
+   (salary (Tweakit Lem E) 25000)
+   (supervisor (Tweakit Lem E) (Bitdiddle Ben))
+
+   (address (Reasoner Louis) (Slumerville (Pine Tree Road) 80))
+   (job (Reasoner Louis) (computer programmer trainee))
+   (salary (Reasoner Louis) 30000)
+   (supervisor (Reasoner Louis) (Hacker Alyssa P))
+
+   (supervisor (Bitdiddle Ben) (Warbucks Oliver))
+
+   (address (Warbucks Oliver) (Swellesley (Top Heap Road)))
+   (job (Warbucks Oliver) (administration big wheel))
+   (salary (Warbucks Oliver) 150000)
+
+   (address (Scrooge Eben) (Weston (Shady Lane) 10))
+   (job (Scrooge Eben) (accounting chief accountant))
+   (salary (Scrooge Eben) 75000)
+   (supervisor (Scrooge Eben) (Warbucks Oliver))
+
+   (address (Cratchet Robert) (Allston (N Harvard Street) 16))
+   (job (Cratchet Robert) (accounting scrivener))
+   (salary (Cratchet Robert) 18000)
+   (supervisor (Cratchet Robert) (Scrooge Eben))
+
+   (address (Aull DeWitt) (Slumerville (Onion Square) 5))
+   (job (Aull DeWitt) (administration secretary))
+   (salary (Aull DeWitt) 25000)
+   (supervisor (Aull DeWitt) (Warbucks Oliver))
+
+   (can-do-job (computer wizard) (computer programmer))
+   (can-do-job (computer wizard) (computer technician))
+
+   (can-do-job (computer programmer)
+    (computer programmer trainee))
+
+   (can-do-job (administration secretary)
+    (administration big wheel))))
+
+;;; Simple queries:
+
+;;; (query '(job ?x (computer programmer)))
+;;; (query '(address ?x ?y))
+;;; (query '(supervisor ?x ?x))
+;;; (query '(job ?x (computer ?type)))
+;;; (query '(job ?x (computer . ?type)))
+
+;;; Exercise 4.55 START
+
+;;; (query '(supervisor ?who (Bitdiddle Ben)))
+;;; (query '(job ?name (accounting . ?job)))
+;;; (query '(address ?name (Slumerville . ?address)))
+
+;;; Exercise 4.55 END
+
+;;; Compound queries:
+
+#|
+ (query '(and (job ?person (computer programmer))
+              (address ?person ?where)))
+ (query '(or (supervisor ?x (Bitdiddle Ben))
+             (supervisor ?x (Hacker Alyssa P))))
+ (query '(and (supervisor ?x (Bitdiddle Ben))
+              (not (job ?x (computer programmer)))))
+ (query '(and (salary ?person ?amount)
+              (lisp-value #'> ?amount 30000)))
+|#
+
+;;; Exercise 4.56 START
+
+#|
+ (query '(and (supervisor ?name (Bitdiddle Ben))
+              (address ?name ?place)))
+ (query '(and (salary (Bitdiddle Ben) ?bsalary) (salary ?name ?salary)
+              (lisp-value #'> ?bsalary ?salary)))
+ (query '(and (supervisor ?name ?visor)
+              (not (job ?visor (computer . ?x))) (job ?visor ?job)))
+|#
+
+;;; Exercise 4.56 END
+
+;;; Rules:
+
+#+nil
+(add-assertions
+ '((rule (lives-near ?person-1 ?person-2)
+         (and (address ?person-1 (?town . ?rest-1))
+              (address ?person-2 (?town . ?rest-2))
+              (not (same ?person-1 ?person-2))))
+
+   (rule (same ?x ?x))
+
+   (rule (wheel ?person)
+         (and (supervisor ?middle-manager ?person)
+              (supervisor ?x ?middle-manager)))))
+
+;;; Rules queries:
+
+#|
+ (query '(lives-near ?x (Bitdiddle Ben)))
+ (query '(and (job ?x (computer programmer))
+              (lives-near ?x (Bitdiddle Ben))))
+|#
+
+#+nil
+(add-assertions
+ '((rule (outranked-by ?staff-person ?boss)
+         (or (supervisor ?staff-person ?boss)
+             (and (supervisor ?staff-person ?middle-manager)
+                  (outranked-by ?middle-manager ?boss))))))
+
+;;; Exercise 4.57 START
+
+#+nil
+(add-assertions
+ '((rule (can-replace ?x ?y)
+         (and (job ?x ?job-x) (job ?y ?job-y)
+              (or (same ?job-x ?job-y)
+                  (can-do-job ?job-x ?job-y))
+              (not (same ?x ?y))))))
+
+#|
+ (query '(can-replace ?name (Fect Cy D)))
+ (query '(and (can-replace ?x ?y)
+              (salary ?x ?salary-x) (salary ?y ?salary-y)
+              (lisp-value #'< ?salary-x ?salary-y)))
+|#
+
+;;; Exercise 4.57 END
+
+;;; Exercise 4.58 START
+
+#+nil
+(add-assertions
+ '((rule (big-shot ?name ?division)
+         (and (job ?name (?division . ?x))
+              (not (and (supervisor ?name ?someone)
+                        (job ?someone (?division . ?y))))))))
+
+;;; (query '(big-shot ?name ?division))
+
+;;; Exercise 4.58 END
+
+;;; Exercise 4.59 START
+
+#+nil
+(add-assertions
+ '((meeting accounting (Monday 9am))
+   (meeting administration (Monday 10am))
+   (meeting computer (Wednesday 3pm))
+   (meeting administration (Friday 1pm))
+   (meeting whole-company (Wednesday 4pm))))
+
+;; (query '(meeting ?meeting (Friday ?time)))
+
+#+nil
+(add-assertions
+ '((rule (meeting-time ?person ?day-and-time)
+         (or (meeting whole-company ?day-and-time)
+             (and (meeting ?division ?day-and-time)
+                  (job ?person (?division . ?x)))))))
+
+;; (query '(meeting-time (Hacker Alyssa P) (Wednesday ?time)))
+
+;;; Exercise 4.59 END
+
+;;; Exercise 4.60 START
+
+;;; The substitution for PERSON-1 and PERSON-2 in LIVES-NEAR
+;;; is exchangable, that's why both pairs match.
+
+;;; For symmetric relations like this, we can add a sorting term, e.g.:
+
+#+nil
+(query '(and (lives-near ?person-1 ?person-2)
+             (lisp-value #'less ?person-1 ?person-2)))
+
+;;; where LESS is defined as:
+(defun less (x y)
+  (cond ((and (atom x) (atom y))
+         (string< (symbol-name x) (symbol-name y)))
+        ((atom x) t)
+        ((atom y) nil)
+        ((less (car x) (car y)) t)
+        ((less (car y) (car x)) nil)
+        (t (less (cdr x) (cdr y)))))
+
+;;; Exercise 4.60 END
+
+;;; Logic as programs:
+
+#+nil
+(add-assertions
+ '((rule (append-to-form () ?y ?y))
+   (rule (append-to-form (?u . ?v) ?y (?u . ?z))
+         (append-to-form ?v ?y ?z))))
+
+;;; Queries:
+
+;; (query '(append-to-form (a b) (c d) ?z))
+;; (query '(append-to-form (a b) ?y (a b c d)))
+;; (query '(append-to-form ?x ?y (a b c d)))
+
+;;; Exercise 4.61 START
+
+#+nil
+(add-assertions
+ '((rule (?x next-to ?y in (?x ?y . ?u)))
+   (rule (?x next-to ?y in (?v . ?z))
+         (?x next-to ?y in ?z))))
+
+;;; (query '(?x next-to ?y in (1 (2 3) 4)))
+;;; => (1 (2 3)), ((2 3) 4)
+
+;;; (query '(?x next-to 1 in (2 1 3 1)))
+;;; => 2, 3
+
+;;; Exercise 4.62 START
+
+#+nil
+(add-assertions
+ '((rule (last-pair (?x) ?pair)
+         (same (?x) ?pair))
+   (rule (last-pair (?x . ?rest) ?pair)
+         (last-pair ?rest ?pair))))
+
+;;; (query '(last-pair (3) ?x))
+;;; (query '(last-pair (1 2 3) ?x))
+;;; (query '(last-pair (2 ?x) (3)))
+;;; (query '(last-pair ?x (3)))
+
+;;; The problem with the last one is
+;;; the same with MARRIED in Section 4.4.3,
+;;; it gets in an infinite loop.
+
+;;; Exercise 4.62 END
+
+;;; Exercise 4.63 START
+
+#+nil
+(add-assertions
+ '((son Adam Cain)
+   (son Cain Enoch)
+   (son Enoch Irad)
+   (son Irad Mehujael)
+   (son Mehujael Methushael)
+   (son Methushael Lamech)
+   (wife Lamech Ada)
+   (son Ada Jabal)
+   (son Ada Jubal)
+
+   (rule (grandson ?grandparent ?grandson)
+         (and (son ?grandparent ?father)
+              (son ?father ?grandson)))
+   (rule (son ?father ?son)
+         (and (wife ?father ?mother)
+              (son ?mother ?son)))))
+
+;;; (query '(grandson Cain ?name))
+;;; (query '(son Lamech ?name))
+;;; (query '(grandson Methushael ?name))
+
+;;; Exercise 4.63 END
+
+
+;;; Section 4.4.3
+
+;;; Exercise 4.64 START
+
+;;; It recursively resolves to itself.
+;;; First it collects all of Ben's supervisors,
+;;; to merge later with the other branch of OR.
+;;; Then the rule is applied again,
+;;; to be later filtered by the other branch of AND,
+;;; and it collects all supervisor pairs,
+;;; to merge later with the other branch of OR.
+;;; Then the rule is applied again...
+
+;;; Exercise 4.64 END
+
+;;; Exercise 4.65 START
+
+;;; Because there are 4 different configurations:
+;;; he is the supervisor of Bitdiddle and Scrooge.
+;;; Scrooge supervises 1 person, Bitdiddle 3.
+
+;;; Exercise 4.65 END
+
+;;; Exercise 4.66 START
+
+;;; He realized that if we are not interested in all bindings,
+;;; then the same bindings may appear multiple times,
+;;; and the statistics will go wrong.
+;;; He should use REMOVE-DUPLICATES on the bindings.
+
+;;; Exercise 4.66 END
+
+;;; Exercise 4.67 START
+
+;;; TODO
+;; Devise a way to install a loop detector in the query system so as
+;; to avoid the kinds of simple loops illustrated in the text and in
+;; *Note Exercise 4-64.  The general idea is that the system should
+;; maintain some sort of history of its current chain of deductions
+;; and should not begin processing a query that it is already working
+;; on.  Describe what kind of information (patterns and frames) is
+;; included in this history, and how the check should be made.
+
+;;; Exercise 4.67 END
+
+;;; Exercise 4.68 START
+
+#+nil
+(add-assertions
+ '((rule (reverse () ()))
+   (rule (reverse (?x . ?y) ?z)
+         (and (reverse ?y ?yr)
+              (append-to-form ?yr (?x) ?z)))))
+
+;;; (query '(reverse (1 2 3) ?x))
+;;; (query '(reverse ?x (1 2 3)))
+
+;;; The second one gets in an infinite loop.
+;;; If we change the order of the AND clauses,
+;;; the first one will get in the infinite loop.
+
+;;; Exercise 4.68 END
+
+;;; Exercise 4.69 START
+
+#+nil
+(add-assertions
+ '((rule (ends-with-grandson (grandson)))
+   (rule (ends-with-grandson (?x . ?y))
+         (ends-with-grandson ?y))
+
+   (rule ((grandson) ?x ?y)
+         (grandson ?x ?y))
+   (rule ((great . ?rel) ?x ?y)
+         (and (son ?x ?son) (?rel ?son ?y)
+              (ends-with-grandson ?rel)))))
+
+;;; (query '((great grandson) ?g ?ggs))
+;;; (query '(?relationship Adam Irad))
+;;; (query '(?relationship Adam Jabal))
+
+;;; Exercise 4.69 END
+
+
+;;; Section 4.4.4.1
+
+(defparameter *input-prompt-3* ";;; Query input:")
+(defparameter *output-prompt-3* ";;; Query results:")
+
+(defun query-driver-loop ()
+  (prompt-for-input *input-prompt-3*)
+  (let ((q (query-syntax-process (read))))
+    (cond ((assertion-to-be-added-p q)
+           (add-rule-or-assertion (add-assertion-body q))
+           (format t "~%Assertion added to data base.~%")
+           (query-driver-loop))
+          (t (format t "~%~a~%" *output-prompt-3*)
+             (display-stream
+              (stream-mapcar
+               (lambda (frame)
+                 (instantiate q frame
+                              (lambda (v f)
+                                (declare (ignore f))
+                                (contract-question-mark v))))
+               (qeval q (singleton-stream '()))))
+             (query-driver-loop)))))
+
+(defun instantiate (exp frame unbound-var-handler)
+  (labels ((copy (exp)
+             (cond ((varp exp)
+                    (let ((binding (binding-in-frame exp frame)))
+                      (if binding
+                          (copy (binding-value binding))
+                          (funcall unbound-var-handler exp frame))))
+                   ((consp exp)
+                    (cons (copy (car exp)) (copy (cdr exp))))
+                   (t exp))))
+    (copy exp)))
+
+
+;;; Section 4.4.4.2
+
+(defun qeval (query frame-stream)
+  (let ((qproc (and (symbolp (type-tag query))
+                    (get (type-tag query) 'qeval))))
+    (if qproc
+        (funcall qproc (contents query) frame-stream)
+        (simple-query query frame-stream))))
+
+(defun simple-query (query-pattern frame-stream)
+  (stream-flatmap
+   (lambda (frame)
+     (stream-append-delayed
+      (find-assertions query-pattern frame)
+      (delay (apply-rules query-pattern frame))))
+   frame-stream))
+
+(defun conjoin (conjuncts frame-stream)
+  (if (empty-conjunction-p conjuncts)
+      frame-stream
+      (conjoin (rest-conjuncts conjuncts)
+               (qeval (first-conjunct conjuncts)
+                      frame-stream))))
+
+(setf (get 'and 'qeval) #'conjoin)
+
+(defun disjoin (disjuncts frame-stream)
+  (if (empty-disjunction-p disjuncts)
+      +the-empty-stream+
+      (interleave-delayed
+       (qeval (first-disjunct disjuncts) frame-stream)
+       (delay (disjoin (rest-disjuncts disjuncts)
+                       frame-stream)))))
+
+(setf (get 'or 'qeval) #'disjoin)
+
+(defun negate-1 (operands frame-stream)
+  (stream-flatmap
+   (lambda (frame)
+     (if (stream-null (qeval (negated-query operands)
+                               (singleton-stream frame)))
+         (singleton-stream frame)
+         +the-empty-stream+))
+   frame-stream))
+
+(setf (get 'not 'qeval) #'negate-1)
+
+(defun lisp-value (call frame-stream)
+  (stream-flatmap
+   (lambda (frame)
+     (if (execute
+          (instantiate call frame
+                       (lambda (v f)
+                         (declare (ignore f))
+                         (error "Unknown pat var: ~a -- LISP-VALUE" v))))
+         (singleton-stream frame)
+         +the-empty-stream+))
+   frame-stream))
+
+(setf (get 'lisp-value 'qeval) #'lisp-value)
+
+(defun execute (exp)
+  (apply (eval (predicate exp)) (args exp)))
+
+(defun always-true (ignored frame-stream)
+  (declare (ignore ignored))
+  frame-stream)
+
+(setf (get 'always-true 'qeval) #'always-true)
+
+
+;;; Section 4.4.4.3
+
+(defun find-assertions (pattern frame)
+  (stream-flatmap (lambda (datum)
+                    (check-an-assertion datum pattern frame))
+                  (fetch-assertions pattern frame)))
+
+(defun check-an-assertion (assertion query-pat query-frame)
+  (let ((match-result (pattern-match query-pat assertion query-frame)))
+    (if (eq match-result 'failed)
+        +the-empty-stream+
+        (singleton-stream match-result))))
+
+(defun pattern-match (pat dat frame)
+  (cond ((eq frame 'failed) 'failed)
+        ((equal pat dat) frame)
+        ((varp pat) (extend-if-consistent pat dat frame))
+        ((and (consp pat) (consp dat))
+         (pattern-match (cdr pat) (cdr dat)
+                        (pattern-match (car pat) (car dat) frame)))
+        (t 'failed)))
+
+(defun extend-if-consistent (var dat frame)
+  (let ((binding (binding-in-frame var frame)))
+    (if binding
+        (pattern-match (binding-value binding) dat frame)
+        (extend var dat frame))))
+
+
+;;; Section 4.4.4.4
+
+(defun apply-rules (pattern frame)
+  (stream-flatmap (lambda (rule)
+                    (apply-a-rule rule pattern frame))
+                  (fetch-rules pattern frame)))
+
+(defun apply-a-rule (rule query-pattern query-frame)
+  (let ((clean-rule (rename-variables-in rule)))
+    (let ((unify-result
+           (unify-match query-pattern
+                        (conclusion clean-rule)
+                        query-frame)))
+      (if (eq unify-result 'failed)
+          +the-empty-stream+
+          (qeval (rule-body clean-rule)
+                 (singleton-stream unify-result))))))
+
+(defun rename-variables-in (rule)
+  (let ((rule-application-id (new-rule-application-id)))
+    (labels ((tree-walk (exp)
+               (cond ((varp exp)
+                      (make-new-variable exp rule-application-id))
+                     ((consp exp)
+                      (cons (tree-walk (car exp))
+                            (tree-walk (cdr exp))))
+                     (t exp))))
+      (tree-walk rule))))
+
+(defun unify-match (p1 p2 frame)
+  (cond ((eq frame 'failed) 'failed)
+        ((equal p1 p2) frame)
+        ((varp p1) (extend-if-possible p1 p2 frame))
+        ((varp p2) (extend-if-possible p2 p1 frame))
+        ((and (consp p1) (consp p2))
+         (unify-match (cdr p1) (cdr p2)
+                      (unify-match (car p1) (car p2) frame)))
+        (t 'failed)))
+
+(defun extend-if-possible (var val frame)
+  (let ((binding (binding-in-frame var frame)))
+    (cond (binding (unify-match
+                    (binding-value binding) val frame))
+          ((varp val)
+           (let ((binding (binding-in-frame val frame)))
+             (if binding
+                 (unify-match var (binding-value binding) frame)
+                 (extend var val frame))))
+          ((depends-on-p val var frame)
+           'failed)
+          (t (extend var val frame)))))
+
+(defun depends-on-p (exp var frame)
+  (labels ((tree-walk (e)
+             (cond ((varp e)
+                    (if (equal var e)
+                        t
+                        (let ((b (binding-in-frame e frame)))
+                          (if b
+                              (tree-walk (binding-value b))
+                              nil))))
+                   ((consp e)
+                    (or (tree-walk (car e))
+                        (tree-walk (cdr e))))
+                   (t nil))))
+    (tree-walk exp)))
+
+
+;;; Section 4.4.4.5
+
+(defparameter *the-assertions* +the-empty-stream+)
+
+(defun fetch-assertions (pattern frame)
+  (declare (ignore frame))
+  (if (use-index-p pattern)
+      (get-indexed-assertions pattern)
+      (get-all-assertions)))
+
+(defun get-all-assertions ()
+  *the-assertions*)
+
+(defun get-indexed-assertions (pattern)
+  (get-stream (index-key-of pattern) 'assertion-stream))
+
+(defun get-stream (key1 key2)
+  (let ((s (get key1 key2)))
+    (if s s +the-empty-stream+)))
+
+(defparameter *the-rules* +the-empty-stream+)
+
+(defun fetch-rules (pattern frame)
+  (declare (ignore frame))
+  (if (use-index-p pattern)
+      (get-indexed-rules pattern)
+      (get-all-rules)))
+
+(defun get-all-rules ()
+  *the-rules*)
+
+(defun get-indexed-rules (pattern)
+  (stream-append
+   (get-stream (index-key-of pattern) 'rule-stream)
+   (get-stream '? 'rule-stream)))
+
+(defun add-rule-or-assertion (assertion)
+  (if (rulep assertion)
+      (add-rule assertion)
+      (add-assertion assertion)))
+
+(defun add-assertion (assertion)
+  (store-assertion-in-index assertion)
+  (let ((old-assertions *the-assertions*))
+    (setf *the-assertions*
+          (cons-stream assertion old-assertions))
+    'ok))
+
+(defun add-rule (rule)
+  (store-rule-in-index rule)
+  (let ((old-rules *the-rules*))
+    (setf *the-rules*
+          (cons-stream rule old-rules))
+    'ok))
+
+(defun store-assertion-in-index (assertion)
+  (if (indexablep assertion)
+      (let ((key (index-key-of assertion)))
+        (let ((current-assertion-stream
+               (get-stream key 'assertion-stream)))
+          (setf (get key 'assertion-stream)
+                (cons-stream assertion current-assertion-stream))))))
+
+(defun store-rule-in-index (rule)
+  (let ((pattern (conclusion rule)))
+    (if (indexablep pattern)
+        (let ((key (index-key-of pattern)))
+          (let ((current-rule-stream
+                 (get-stream key 'rule-stream)))
+            (setf (get key 'rule-stream)
+                  (cons-stream rule current-rule-stream)))))))
+
+(defun indexablep (pat)
+  (or (constant-symbol-p (car pat))
+      (varp (car pat))))
+
+(defun index-key-of (pat)
+  (let ((key (car pat)))
+    (if (varp key) '? key)))
+
+(defun use-index-p (pat)
+  (constant-symbol-p (car pat)))
+
+;;; Exercise 4.70 START
+
+;;; CONS-STREAM is a macro that DELAYs its argument;
+;;; so *THE-ASSERTIONS* is not evaluated when in CONS-STREAM
+;;; when we already try to overwrite its value.
+;;; So if we didn't use LET, it would have pointed to itself.
+;;; (Actually, in this implementation, *THE-ASSERTIONS* is
+;;;  a special variable, so it would be dynamically scoped.
+;;;  One more reason why not tu use it.)
+
+;;; Exercise 4.70 END
+
+
+;;; Section 4.4.4.6
+
+(defun stream-append-delayed (s1 delayed-s2)
+  (if (stream-null s1)
+      (force delayed-s2)
+      (cons-stream (stream-car s1)
+                   (stream-append-delayed (stream-cdr s1) delayed-s2))))
+
+(defun interleave-delayed (s1 delayed-s2)
+  (if (stream-null s1)
+      (force delayed-s2)
+      (cons-stream (stream-car s1)
+                   (interleave-delayed (force delayed-s2)
+                                       (delay (stream-cdr s1))))))
+
+(defun stream-flatmap (proc s)
+  (flatten-stream (stream-mapcar proc s)))
+
+(defun flatten-stream (stream)
+  (if (stream-null stream)
+      +the-empty-stream+
+      (interleave-delayed (stream-car stream)
+                          (delay (flatten-stream (stream-cdr stream))))))
+
+(defun singleton-stream (x)
+  (cons-stream x +the-empty-stream+))
+
+
+;;; Section 4.4.4.7
+
+(defun assertion-to-be-added-p (exp)
+  (eq (type-tag exp) 'assert!))
+
+(defun add-assertion-body (exp)
+  (car (contents exp)))
+
+(defun empty-conjunction-p (exps) (null exps))
+(defun first-conjunct (exps) (car exps))
+(defun rest-conjuncts (exps) (cdr exps))
+
+(defun empty-disjunction-p (exps) (null exps))
+(defun first-disjunct (exps) (car exps))
+(defun rest-disjuncts (exps) (cdr exps))
+
+(defun negated-query (exps) (car exps))
+
+(defun predicate (exps) (car exps))
+(defun args (exps) (cdr exps))
+
+(defun rulep (statement)
+  (tagged-list-p statement 'rule))
+
+(defun conclusion (rule) (cadr rule))
+
+(defun rule-body (rule)
+  (if (null (cddr rule))
+      '(always-true)
+      (caddr rule)))
+
+(defun query-syntax-process (exp)
+  (map-over-symbols #'expand-question-mark exp))
+
+(defun map-over-symbols (proc exp)
+  (cond ((consp exp)
+         (cons (map-over-symbols proc (car exp))
+               (map-over-symbols proc (cdr exp))))
+        ((symbolp exp) (funcall proc exp))
+        (t exp)))
+
+(defun expand-question-mark (symbol)
+  (let ((chars (symbol-name symbol)))
+    (if (char= (char chars 0) #\?)
+        (list '? (intern (subseq chars 1)))
+        symbol)))
+
+(defun varp (exp)
+  (tagged-list-p exp '?))
+
+(defun constant-symbol-p (exp)
+  (symbolp exp))
+
+(defparameter *rule-counter* 0)
+
+(defun new-rule-application-id ()
+  (incf *rule-counter*))
+
+(defun make-new-variable (var rule-application-id)
+  (cons '? (cons rule-application-id (cdr var))))
+
+(defun contract-question-mark (variable)
+  (let ((name (if (numberp (cadr variable))
+                  (format nil "~a-~a" (caddr variable) (cadr variable))
+                  (symbol-name (cadr variable)))))
+    (intern (format nil "?~a" name))))
+
+
+;;; Section 4.4.4.8
+
+(defun make-binding (variable value)
+  (cons variable value))
+
+(defun binding-variable (binding)
+  (car binding))
+
+(defun binding-value (binding)
+  (cdr binding))
+
+(defun binding-in-frame (variable frame)
+  (assoc variable frame :test #'equal))
+
+(defun extend (variable value frame)
+  (cons (make-binding variable value) frame))
+
+;;; Exercise 4.71 START
+;;; Exercise 4.71 END
+
+;;; Exercise 4.72 START
+;;; Exercise 4.72 END
+
+;;; Exercise 4.73 START
+;;; Exercise 4.73 END
+
+;;; Exercise 4.74 START
+;;; Exercise 4.74 END
+
+;;; Exercise 4.75 START
+;;; Exercise 4.75 END
+
+;;; Exercise 4.76 START
+;;; Exercise 4.76 END
+
+;;; Exercise 4.77 START
+;;; Exercise 4.77 END
+
+;;; Exercise 4.78 START
+;;; Exercise 4.78 END
+
+;;; Exercise 4.79 START
+;;; Exercise 4.79 END
+
+
+;;; Section 5.1
 
 
 ;;Local Variables:
