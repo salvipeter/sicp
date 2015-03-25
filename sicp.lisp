@@ -7801,8 +7801,9 @@ FINAL is a function taking no arguments, called when not found."
 
 (defparameter *primitive-procedures*
   (mapcar #'lisp->scheme
-          `(car cdr cadr cons list length assoc + - * / abs random
-            list-ref (display prin1) (newline terpri)
+          `(car cdr cadr cons list list-ref length assoc random
+            + - * / abs (even? ,(tfify #'evenp)) (prime? ,(tfify #'primep))
+            (display prin1) (newline terpri)
             (not ,(tfify #'falsep)) (null? ,(tfify #'null))
             (eq? ,(tfify #'eq)) (equal? ,(tfify #'equal))
             (< ,(tfify #'<)) (> ,(tfify #'>)) (= ,(tfify #'=)))))
@@ -8825,6 +8826,19 @@ FINAL is a function taking no arguments, called when not found."
 ;;; Exercise 4.34 END
 
 
+;;; Section 4.3
+
+#+nil
+(amball
+ '(begin
+   (define (prime-sum-pair list1 list2)
+     (let ((a (an-element-of list1))
+           (b (an-element-of list2)))
+       (require (prime? (+ a b)))
+       (list a b)))
+   (prime-sum-pair '(1 3 5 8) '(20 35 110))))
+
+
 ;;; Section 4.3.1
 
 (defparameter *the-ambiguous-environment* (setup-environment))
@@ -9337,6 +9351,13 @@ FINAL is a function taking no arguments, called when not found."
         ((rambp exp) (analyze-ramb exp))
 
 ;;; Exercise 4.50 END
+;;; Exercise 4.54 START
+
+        ;; See also below.
+        #+nil
+        ((requirep exp) (analyze-require exp))
+
+;;; Exercise 4.54 END
         ((variablep exp) (analyze-variable-1 exp))
         ((assignmentp exp) (analyze-assignment-1 exp))
 ;;; Exercise 4.51 START
@@ -9347,6 +9368,12 @@ FINAL is a function taking no arguments, called when not found."
 ;;; Exercise 4.51 END
         ((definitionp exp) (analyze-definition-1 exp))
         ((ifp exp) (analyze-if-1 exp))
+;;; Exercise 4.52 START
+
+        ;; See also below.
+        ((if-fail-p exp) (analyze-if-fail exp))
+
+;;; Exercise 4.52 END
         ((lambdap exp) (analyze-lambda-1 exp))
         ((beginp exp) (analyze-sequence-1 (begin-actions exp)))
         ((condp exp) (analyze-1 (cond->if exp)))
@@ -9568,13 +9595,53 @@ Restores the original value at a failure."
 
 ;;; Exercise 4.52 START
 
+;;; See also above.
+
+(defun if-fail-p (exp)
+  (tagged-list-p exp 'if-fail))
+
+(defun if-fail-expression (exp)
+  (cadr exp))
+
+(defun if-fail-fail-value (exp)
+  (caddr exp))
+
+(defun analyze-if-fail (exp)
+  (let ((proc (analyze-1 (if-fail-expression exp)))
+        (fail-proc (analyze-1 (if-fail-fail-value exp))))
+    (lambda (env succeed fail)
+      (funcall proc env
+               (lambda (value fail2)
+                 (funcall succeed value fail2))
+               (lambda ()
+                 (funcall fail-proc env succeed fail))))))
+
 ;;; Exercise 4.52 END
 
 ;;; Exercise 4.53 START
 
+;;; Collects all solutions like my amball function:
+;;; ((8 35) (3 110) (3 20))
+
 ;;; Exercise 4.53 END
 
 ;;; Exercise 4.54 START
+
+(defun requirep (exp)
+  (tagged-list-p exp 'require))
+
+(defun require-predicate (exp)
+  (cadr exp))
+
+(defun analyze-require (exp)
+  (let ((pproc (analyze-1 (require-predicate exp))))
+    (lambda (env succeed fail)
+      (funcall pproc env
+               (lambda (pred-value fail2)
+                 (if (falsep pred-value)
+                     (funcall fail2)
+                     (funcall succeed 'ok fail2)))
+               fail))))
 
 ;;; Exercise 4.54 END
 
