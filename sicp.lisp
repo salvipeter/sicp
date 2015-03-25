@@ -2225,11 +2225,11 @@ anti-clockwise direction HEIGHT units."
 
 ;;; E.g.
 #|
-(open-sdl-window 400 400)
-(defparameter *frame*
-  (make-frame (make-vect 0 400) (make-vect 400 0) (make-vect 0 -400)))
-(funcall (square-limit #'wave 3) *frame*)
-(sdl:quit-sdl)
+ (open-sdl-window 400 400)
+ (defparameter *frame*
+   (make-frame (make-vect 0 400) (make-vect 400 0) (make-vect 0 -400)))
+ (funcall (square-limit #'wave 3) *frame*)
+ (sdl:quit-sdl)
 |#
 ;;; Note:
 ;;; Implementation of the ROGERS function is left as an exercise to the reader.
@@ -9910,6 +9910,8 @@ Restores the original value at a failure."
 
 ;;; (query '(?x next-to 1 in (2 1 3 1)))
 ;;; => 2, 3
+
+;;; Exercise 4.61 END
 
 ;;; Exercise 4.62 START
 
