@@ -10744,114 +10744,137 @@ and abandoning those where unification failes."
 
 ;;; Section 5.1.1
 
-;;; GCD
-#+nil
-(controller
- test-b
- (test (op =) (reg b) (const 0))
- (branch (label gcd-done))
- (assign t (op rem) (reg a) (reg b))
- (assign a (reg b))
- (assign b (reg t))
- (goto (label test-b))
- gcd-done)
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defmacro defmachine (name vars tmpvars output funs doc &body body)
+    "For convenience.
+Machine creation is inside the DEFUN,
+so machine-programs can be compiled even if
+all of the machine codes comes only later."
+    (let ((machine (gensym "MACHINE"))
+          (fns (mapcar (lambda (f)
+                         `(list ',(first f) ,(second f)))
+                       funs)))
+      `(defun ,name ,vars
+         ,doc
+         (let ((,machine (make-machine ',(append vars tmpvars) (list ,@fns) ',body)))
+           (mapc (lambda (var val)
+                   (set-register-contents ,machine var val))
+                 ',vars (list ,@vars))
+           (start ,machine)
+           (get-register-contents ,machine ',output))))))
+
+(defmachine gcd-2 (a b) (tmp) a ((rem #'mod) (= #'=))
+    "GCD - first version."
+  test-b
+  (test (op =) (reg b) (const 0))
+  (branch (label gcd-done))
+  (assign tmp (op rem) (reg a) (reg b))
+  (assign a (reg b))
+  (assign b (reg tmp))
+  (goto (label test-b))
+  gcd-done)
 
 ;;; Exercise 5.2 START
 
-;;; Factorial
-#+nil
-(controller
- (assign product (const 1))
- (assign counter (const 1))
- test-counter
- (test (op >) (reg counter) (reg n))
- (branch (label factorial-done))
- (assign product (op *) (reg product) (reg counter))
- (assign counter (op +) (reg counter) (const 1))
- (goto (label test-counter))
- factorial-done)
+(defmachine factorial-4 (n) (product counter) product
+    ((> #'>) (* #'*) (+ #'+))
+    "Iterative factorial."
+  (assign product (const 1))
+  (assign counter (const 1))
+  test-counter
+  (test (op >) (reg counter) (reg n))
+  (branch (label factorial-done))
+  (assign product (op *) (reg product) (reg counter))
+  (assign counter (op +) (reg counter) (const 1))
+  (goto (label test-counter))
+  factorial-done)
 
 ;;; Exercise 5.2 END
 
-;;; GCD with READ/PERFORM
-#+nil
-(controller
- gcd-loop
- (assign a (op read))
- (assign b (op read))
- test-b
- (test (op =) (reg b) (const 0))
- (branch (label gcd-done))
- (assign t (op rem) (reg a) (reg b))
- (assign a (reg b))
- (assign b (reg t))
- (goto (label test-b))
- gcd-done
- (perform (op print) (reg a))
- (goto (label gcd-loop)))
+(defmachine gcd-3 () (a b tmp) a
+    ((rem #'mod) (= #'=) (read #'read) (print #'print))
+    "GCD with READ/PERFORM."
+  gcd-loop
+  (assign a (op read))
+  (assign b (op read))
+  test-b
+  (test (op =) (reg b) (const 0))
+  (branch (label gcd-done))
+  (assign tmp (op rem) (reg a) (reg b))
+  (assign a (reg b))
+  (assign b (reg tmp))
+  (goto (label test-b))
+  gcd-done
+  (perform (op print) (reg a))
+  (goto (label gcd-loop)))
 
 
 ;;; Section 5.1.2
 
-;;; GCD with expanded REM
-#+nil
-(controller
- test-b
- (test (op =) (reg b) (const 0))
- (branch (label gcd-done))
- (assign t (reg a))
- rem-loop
- (test (op <) (reg t) (reg b))
- (branch (label rem-done))
- (assign t (op -) (reg t) (reg b))
- (goto (label rem-loop))
- rem-done
- (assign a (reg b))
- (assign b (reg t))
- (goto (label test-b))
- gcd-done)
+(defmachine gcd-4 (a b) (tmp) a
+    ((< #'<) (- #'-) (= #'=))
+    "GCD with expanded REM."
+  test-b
+  (test (op =) (reg b) (const 0))
+  (branch (label gcd-done))
+  (assign tmp (reg a))
+  rem-loop
+  (test (op <) (reg tmp) (reg b))
+  (branch (label rem-done))
+  (assign tmp (op -) (reg tmp) (reg b))
+  (goto (label rem-loop))
+  rem-done
+  (assign a (reg b))
+  (assign b (reg tmp))
+  (goto (label test-b))
+  gcd-done)
 
 ;;; Exercise 5.3 START
 
-;;; SQRT with GOOD-ENOUGH? and IMPROVE as primitives:
-#+nil
-(controller
- (assign guess (const 1.0))
- iter-start
- (test (op good-enough?) (reg guess))
- (branch (label iter-end))
- (assign guess (op improve) (reg guess))
- (goto (label iter-start))
- iter-end)
+(defmachine sqrt-11 (x) (guess) guess
+    ((good-enough? (lambda (x g) (< (abs (- (* g g) x)) 0.001)))
+     (improve (lambda (x g) (/ (+ g (/ x g)) 2))))
+    "SQRT with GOOD-ENOUGH? and IMPROVE as primitives."
+  (assign guess (const 1.0))
+  iter-start
+  (test (op good-enough?) (reg x) (reg guess))
+  (branch (label iter-end))
+  (assign guess (op improve) (reg x) (reg guess))
+  (goto (label iter-start))
+  iter-end)
 
-;;; SQRT with GOOD-ENOUGH? expanded:
-#+nil
-(controller
- (assign guess (const 1.0))
- iter-start
- (assign error (op square) (reg guess))
- (assign error (op -) (reg error) (reg x))
- (assign error (op abs) (reg error))
- (test (op <) (reg guess) (const 0.001))
- (branch (label iter-end))
- (assign guess (op improve) (reg guess))
- (goto (label iter-start))
- iter-end)
+(defmachine sqrt-12 (x) (guess error) guess
+    ((improve (lambda (x g) (/ (+ g (/ x g)) 2)))
+     (square (lambda (x) (* x x)))
+     (- #'-) (abs #'abs) (< #'<))
+    "SQRT with GOOD-ENOUGH? expanded."
+  (assign guess (const 1.0))
+  iter-start
+  (assign error (op square) (reg guess))
+  (assign error (op -) (reg error) (reg x))
+  (assign error (op abs) (reg error))
+  (test (op <) (reg error) (const 0.001))
+  (branch (label iter-end))
+  (assign guess (op improve) (reg x) (reg guess))
+  (goto (label iter-start))
+  iter-end)
 
-;;; SQRT with IMPROVE also expanded:
-#+nil
-(controller
- (assign guess (const 1.0))
- iter-start
- (assign error (op square) (reg guess))
- (assign error (op -) (reg error) (reg x))
- (assign error (op abs) (reg error))
- (test (op <) (reg guess) (const 0.001))
- (branch (label iter-end))
- (assign improved (op /) (reg x) (reg guess))
- (assign guess (op average) (reg guess) (reg improved))
- (goto (label iter-start))
- iter-end)
+(defmachine sqrt-13 (x) (guess error improved) guess
+    ((square (lambda (x) (* x x)))
+     (average (lambda (x y) (/ (+ x y) 2)))
+     (- #'-) (abs #'abs) (< #'<) (/ #'/))
+    "SQRT with IMPROVE also expanded."
+  (assign guess (const 1.0))
+  iter-start
+  (assign error (op square) (reg guess))
+  (assign error (op -) (reg error) (reg x))
+  (assign error (op abs) (reg error))
+  (test (op <) (reg error) (const 0.001))
+  (branch (label iter-end))
+  (assign improved (op /) (reg x) (reg guess))
+  (assign guess (op average) (reg guess) (reg improved))
+  (goto (label iter-start))
+  iter-end)
 
 ;;; Data-path diagrams can be drawn accordingly...
 
@@ -10860,99 +10883,101 @@ and abandoning those where unification failes."
 
 ;;; Section 5.1.4
 
-;;; Factorial recursively
-#+nil
-(controller
- (assign continue (label fact-done))    ; set up final return address
- fact-loop
- (test (op =) (reg n) (const 1))
- (branch (label base-case))
- ;; Set up for the recursive call by saving `n' and `continue'.
- ;; Set up `continue' so that the computation will continue
- ;; at `after-fact' when the subroutine returns.
- (save continue)
- (save n)
- (assign n (op -) (reg n) (const 1))
- (assign continue (label after-fact))
- (goto (label fact-loop))
- after-fact
- (restore n)
- (restore continue)
- (assign val (op *) (reg n) (reg val))  ; `val' now contains n(n - 1)!
- (goto (reg continue))                  ; return to caller
- base-case
- (assign val (const 1))                 ; base case: 1! = 1
- (goto (reg continue))                  ; return to caller
- fact-done)
+(defmachine factorial-5 (n) (continue val) val
+    ((= #'=) (- #'-) (* #'*))
+    "Factorial recursively"
+  (assign continue (label fact-done))   ; set up final return address
+  fact-loop
+  (test (op =) (reg n) (const 1))
+  (branch (label base-case))
+  ;; Set up for the recursive call by saving `n' and `continue'.
+  ;; Set up `continue' so that the computation will continue
+  ;; at `after-fact' when the subroutine returns.
+  (save continue)
+  (save n)
+  (assign n (op -) (reg n) (const 1))
+  (assign continue (label after-fact))
+  (goto (label fact-loop))
+  after-fact
+  (restore n)
+  (restore continue)
+  (assign val (op *) (reg n) (reg val)) ; `val' now contains n(n - 1)!
+  (goto (reg continue))                 ; return to caller
+  base-case
+  (assign val (const 1))                ; base case: 1! = 1
+  (goto (reg continue))                 ; return to caller
+  fact-done)
 
-;;; Fibonacci
-#+nil
-(controller
- (assign continue (label fib-done))
- fib-loop
- (test (op <) (reg n) (const 2))
- (branch (label immediate-answer))
- ;; set up to compute Fib(n - 1)
- (save continue)
- (assign continue (label afterfib-n-1))
- (save n)                               ; save old value of `n'
- (assign n (op -) (reg n) (const 1))    ; clobber `n' to n - 1
- (goto (label fib-loop))                ; perform recursive call
- afterfib-n-1                           ; upon return, `val' contains Fib(n - 1)
- (restore n)
- (restore continue)
- ;; set up to compute _Fib_(n - 2)
- (assign n (op -) (reg n) (const 2))
- (save continue)
- (assign continue (label afterfib-n-2))
- (save val)                             ; save Fib(n - 1)
- (goto (label fib-loop))
- afterfib-n-2                           ; upon return, `val' contains Fib(n - 2)
- (assign n (reg val))                   ; `n' now contains Fib(n - 2)
- (restore val)                          ; `val' now contains Fib(n - 1)
- (restore continue)
- (assign val                            ;  Fib(n - 1) +  Fib(n - 2)
-         (op +) (reg val) (reg n))
- (goto (reg continue))                  ; return to caller, answer is in `val'
- immediate-answer
- (assign val (reg n))                   ; base case:  Fib(n) = n
- (goto (reg continue))
- fib-done)
+(defmachine fib-4 (n) (continue val) val
+    ((< #'<) (- #'-) (+ #'+))
+    "Fibonacci with double recursion."
+  (assign continue (label fib-done))
+  fib-loop
+  (test (op <) (reg n) (const 2))
+  (branch (label immediate-answer))
+  ;; set up to compute Fib(n - 1)
+  (save continue)
+  (assign continue (label afterfib-n-1))
+  (save n)                              ; save old value of `n'
+  (assign n (op -) (reg n) (const 1))   ; clobber `n' to n - 1
+  (goto (label fib-loop))               ; perform recursive call
+  afterfib-n-1                          ; upon return, `val' contains Fib(n - 1)
+  (restore n)
+  (restore continue)
+  ;; set up to compute _Fib_(n - 2)
+  (assign n (op -) (reg n) (const 2))
+  (save continue)
+  (assign continue (label afterfib-n-2))
+  (save val)                            ; save Fib(n - 1)
+  (goto (label fib-loop))
+  afterfib-n-2                          ; upon return, `val' contains Fib(n - 2)
+  (assign n (reg val))                  ; `n' now contains Fib(n - 2)
+  (restore val)                         ; `val' now contains Fib(n - 1)
+  (restore continue)
+  (assign val                           ;  Fib(n - 1) +  Fib(n - 2)
+          (op +) (reg val) (reg n))
+  (goto (reg continue))                 ; return to caller, answer is in `val'
+  immediate-answer
+  (assign val (reg n))                  ; base case:  Fib(n) = n
+  (goto (reg continue))
+  fib-done)
 
 ;;; Exercise 5.4 START
 
-;;; Recursive exponentiation
-#+nil
-(controller
- (assign continue (label expt-done))
- expt-loop
- (test (op =) (reg n) (const 0))
- (branch (label immediate-answer))
- (save continue)
- (assign continue (label after-expt-n-1))
- (save n)
- (assign n (op -) (reg n) (const 1))
- (goto (label expt-loop))
- after-expt-n-1
- (assign val (op *) val b)
- (goto (reg continue))
- immediate-answer
- (assign val (const 1))
- (goto (reg continue))
- expt-done)
+(defmachine expt-3 (b n) (continue val) val
+    ((= #'=) (* #'*) (- #'-))
+    "Recursive exponentiation."
+  (assign continue (label expt-done))
+  expt-loop
+  (test (op =) (reg n) (const 0))
+  (branch (label immediate-answer))
+  (save continue)
+  (assign continue (label after-expt-n-1))
+  (save n)
+  (assign n (op -) (reg n) (const 1))
+  (goto (label expt-loop))
+  after-expt-n-1
+  (restore n)
+  (restore continue)
+  (assign val (op *) (reg val) (reg b))
+  (goto (reg continue))
+  immediate-answer
+  (assign val (const 1))
+  (goto (reg continue))
+  expt-done)
 
-;;; Iterative exponentiation
-#+nil
-(controller
- (assign counter (reg n))
- (assign product (const 1))
- expt-loop
- (test (op =) (reg counter) (const 0))
- (branch (label expt-done))
- (assign counter (op -) (reg counter) (const 1))
- (assign product (op *) (reg product) (reg b))
- (goto (label expt-loop))
- expt-done)
+(defmachine expt-4 (b n) (counter product) product
+    ((= #'=) (* #'*) (- #'-))
+    "Iterative exponentiation."
+  (assign counter (reg n))
+  (assign product (const 1))
+  expt-loop
+  (test (op =) (reg counter) (const 0))
+  (branch (label expt-done))
+  (assign counter (op -) (reg counter) (const 1))
+  (assign product (op *) (reg product) (reg b))
+  (goto (label expt-loop))
+  expt-done)
 
 ;;; Exercise 5.4 END
 
@@ -10988,6 +11013,328 @@ and abandoning those where unification failes."
 
 
 ;;; Section 5.2
+
+;;; Exercise 5.7 START
+
+;;; Done.
+
+;;; Exercise 5.7 END
+
+
+;;; Section 5.2.1
+
+(defun make-machine (register-names ops controller-text)
+  (let ((machine (make-new-machine)))
+    (mapc (lambda (register-name)
+            (funcall (funcall machine 'allocate-register) register-name))
+          register-names)
+    (funcall (funcall machine 'install-operations) ops)
+    (funcall (funcall machine 'install-instruction-sequence)
+             (assemble controller-text machine))
+    machine))
+
+(defun make-register (name)
+  (declare (ignore name))
+  (let ((contents '*unassigned*))
+    (labels ((dispatch (message)
+               (cond ((eq message 'get) contents)
+                     ((eq message 'set)
+                      (lambda (value) (setf contents value)))
+                     (t (error "Unknown request: ~a -- REGISTER" message)))))
+      #'dispatch)))
+
+(defun get-contents (register)
+  (funcall register 'get))
+
+(defun set-contents (register value)
+  (funcall (funcall register 'set) value))
+
+(defun make-stack ()
+  (let ((s '()))
+    (labels ((push-1 (x) (setf s (cons x s)))
+             (pop-1 ()
+               (if (null s)
+                   (error "Empty stack -- POP")
+                   (let ((top (car s)))
+                     (setf s (cdr s))
+                     top)))
+             (initialize ()
+               (setf s '())
+               'done)
+             (dispatch (message)
+               (cond ((eq message 'push) #'push-1)
+                     ((eq message 'pop) (pop-1))
+                     ((eq message 'initialize) (initialize))
+                     (t (error "Unknown request: ~a -- STACK" message)))))
+      #'dispatch)))
+
+(defun pop% (stack)
+  (funcall stack 'pop))
+
+(defun push% (stack value)
+  (funcall (funcall stack 'push) value))
+
+(defun make-new-machine ()
+  (let ((pc (make-register 'pc))
+        (flag (make-register 'flag))
+        (stack (make-stack))
+        (the-instruction-sequence '()))
+    (let ((the-ops
+           (list (list 'initialize-stack
+                       (lambda () (funcall stack 'initialize)))))
+          (register-table
+           (list (list 'pc pc) (list 'flag flag))))
+      (labels ((allocate-register (name)
+                 (if (assoc name register-table)
+                     (error "Multiply defined register: ~a" name)
+                     (setf register-table
+                           (cons (list name (make-register name))
+                                 register-table)))
+                 'register-allocated)
+               (lookup-register (name)
+                 (let ((val (assoc name register-table)))
+                   (if val
+                       (cadr val)
+                       (error "Unknown register: ~a" name))))
+               (execute ()
+                 (let ((insts (get-contents pc)))
+                   (if (null insts)
+                       'done
+                       (progn
+                         (funcall (instruction-execution-proc (car insts)))
+                         (execute)))))
+               (dispatch (message)
+                 (cond ((eq message 'start)
+                        (set-contents pc the-instruction-sequence)
+                        (execute))
+                       ((eq message 'install-instruction-sequence)
+                        (lambda (seq) (setf the-instruction-sequence seq)))
+                       ((eq message 'allocate-register) #'allocate-register)
+                       ((eq message 'get-register) #'lookup-register)
+                       ((eq message 'install-operations)
+                        (lambda (ops) (setf the-ops (append the-ops ops))))
+                       ((eq message 'stack) stack)
+                       ((eq message 'operations) the-ops)
+                       (t (error "Unknown request: ~a -- MACHINE" message)))))
+        #'dispatch))))
+
+(defun start (machine)
+  (funcall machine 'start))
+
+(defun get-register-contents (machine register-name)
+  (get-contents (get-register machine register-name)))
+
+(defun set-register-contents (machine register-name value)
+  (set-contents (get-register machine register-name) value)
+  'done)
+
+(defun get-register (machine reg-name)
+  (funcall (funcall machine 'get-register) reg-name))
+
+
+;;; Section 5.2.2
+
+(defun assemble (controller-text machine)
+  (extract-labels controller-text
+                  (lambda (insts labels)
+                    (update-insts insts labels machine)
+                    insts)))
+
+(defun extract-labels (text receive)
+  (if (null text)
+      (funcall receive '() '())
+      (extract-labels (cdr text)
+                      (lambda (insts labels)
+                        (let ((next-inst (car text)))
+                          (if (symbolp next-inst)
+                              (funcall receive insts
+                                       (cons (make-label-entry next-inst insts)
+                                             labels))
+                              (funcall receive (cons (make-instruction next-inst)
+                                                     insts)
+                                       labels)))))))
+
+(defun update-insts (insts labels machine)
+  (let ((pc (get-register machine 'pc))
+        (flag (get-register machine 'flag))
+        (stack (funcall machine 'stack))
+        (ops (funcall machine 'operations)))
+    (mapc (lambda (inst)
+            (set-instruction-execution-proc
+             inst
+             (make-execution-procedure (instruction-text inst)
+                                       labels machine pc flag stack ops)))
+          insts)))
+
+(defun make-instruction (text)
+  (cons text '()))
+
+(defun instruction-text (inst)
+  (car inst))
+
+(defun instruction-execution-proc (inst)
+  (cdr inst))
+
+(defun set-instruction-execution-proc (inst proc)
+  (setf (cdr inst) proc))
+
+(defun make-label-entry (label-name insts)
+  (cons label-name insts))
+
+(defun lookup-label (labels label-name)
+  (let ((val (assoc label-name labels)))
+    (if val
+        (cdr val)
+        (error "Undefined label: ~a -- ASSEMBLE" label-name))))
+
+
+;;; Section 5.2.3
+
+(defun make-execution-procedure (inst labels machine pc flag stack ops)
+  (cond ((eq (car inst) 'assign)
+         (make-assign inst machine labels ops pc))
+        ((eq (car inst) 'test)
+         (make-test inst machine labels ops flag pc))
+        ((eq (car inst) 'branch)
+         (make-branch-1 inst machine labels flag pc))
+        ((eq (car inst) 'goto)
+         (make-goto inst machine labels pc))
+        ((eq (car inst) 'save)
+         (make-save inst machine stack pc))
+        ((eq (car inst) 'restore)
+         (make-restore inst machine stack pc))
+        ((eq (car inst) 'perform)
+         (make-perform inst machine labels ops pc))
+        (t (error "Unknown instruction type: ~a -- ASSEMBLE" inst))))
+
+(defun make-assign (inst machine labels operations pc)
+  (let ((target (get-register machine (assign-reg-name inst)))
+        (value-exp (assign-value-exp inst)))
+    (let ((value-proc (if (operation-exp-p value-exp)
+                          (make-operation-exp
+                           value-exp machine labels operations)
+                          (make-primitive-exp
+                           (car value-exp) machine labels))))
+      (lambda ()                    ; execution procedure for `assign'
+        (set-contents target (funcall value-proc))
+        (advance-pc pc)))))
+
+(defun assign-reg-name (assign-instruction)
+  (cadr assign-instruction))
+
+(defun assign-value-exp (assign-instruction)
+  (cddr assign-instruction))
+
+(defun advance-pc (pc)
+  (set-contents pc (cdr (get-contents pc))))
+
+(defun make-test (inst machine labels operations flag pc)
+  (let ((condition (test-condition inst)))
+    (if (operation-exp-p condition)
+        (let ((condition-proc
+               (make-operation-exp condition machine labels operations)))
+          (lambda ()
+            (set-contents flag (funcall condition-proc))
+            (advance-pc pc)))
+        (error "Bad TEST instruction: ~a -- ASSEMBLE" inst))))
+
+(defun test-condition (test-instruction)
+  (cdr test-instruction))
+
+(defun make-branch-1 (inst machine labels flag pc)
+  (declare (ignore machine))
+  (let ((dest (branch-dest inst)))
+    (if (label-exp-p dest)
+        (let ((insts (lookup-label labels (label-exp-label dest))))
+          (lambda ()
+            (if (get-contents flag)
+                (set-contents pc insts)
+                (advance-pc pc))))
+        (error "Bad BRANCH instruction: ~a -- ASSEMBLE" inst))))
+
+(defun branch-dest (branch-instruction)
+  (cadr branch-instruction))
+
+(defun make-goto (inst machine labels pc)
+  (let ((dest (goto-dest inst)))
+    (cond ((label-exp-p dest)
+           (let ((insts (lookup-label labels (label-exp-label dest))))
+             (lambda () (set-contents pc insts))))
+          ((register-exp-p dest)
+           (let ((reg (get-register machine (register-exp-reg dest))))
+             (lambda ()
+               (set-contents pc (get-contents reg)))))
+          (t (error "Bad GOTO instruction: ~a -- ASSEMBLE" inst)))))
+
+(defun goto-dest (goto-instruction)
+  (cadr goto-instruction))
+
+(defun make-save (inst machine stack pc)
+  (let ((reg (get-register machine (stack-inst-reg-name inst))))
+    (lambda ()
+      (push% stack (get-contents reg))
+      (advance-pc pc))))
+
+(defun make-restore (inst machine stack pc)
+  (let ((reg (get-register machine (stack-inst-reg-name inst))))
+    (lambda ()
+      (set-contents reg (pop% stack))
+      (advance-pc pc))))
+
+(defun stack-inst-reg-name (stack-instruction)
+  (cadr stack-instruction))
+
+(defun make-perform (inst machine labels operations pc)
+  (let ((action (perform-action inst)))
+    (if (operation-exp-p action)
+        (let ((action-proc (make-operation-exp action machine labels operations)))
+          (lambda ()
+            (funcall action-proc)
+            (advance-pc pc)))
+        (error "Bad PERFORM instruction: ~a -- ASSEMBLE" inst))))
+
+(defun perform-action (inst) (cdr inst))
+
+(defun make-primitive-exp (exp machine labels)
+  (cond ((constant-exp-p exp)
+         (let ((c (constant-exp-value exp)))
+           (lambda () c)))
+        ((label-exp-p exp)
+         (let ((insts (lookup-label labels (label-exp-label exp))))
+           (lambda () insts)))
+        ((register-exp-p exp)
+         (let ((r (get-register machine (register-exp-reg exp))))
+           (lambda () (get-contents r))))
+        (t (error "Unknown expression type: ~a -- ASSEMBLE" exp))))
+
+(defun register-exp-p (exp) (tagged-list-p exp 'reg))
+(defun register-exp-reg (exp) (cadr exp))
+(defun constant-exp-p (exp) (tagged-list-p exp 'const))
+(defun constant-exp-value (exp) (cadr exp))
+(defun label-exp-p (exp) (tagged-list-p exp 'label))
+(defun label-exp-label (exp) (cadr exp))
+
+(defun make-operation-exp (exp machine labels operations)
+  (let ((op (lookup-prim (operation-exp-op exp) operations))
+        (aprocs (mapcar (lambda (e) (make-primitive-exp e machine labels))
+                        (operation-exp-operands exp))))
+    (lambda ()
+      (apply op (mapcar (lambda (p) (funcall p)) aprocs)))))
+
+(defun operation-exp-p (exp)
+  (and (consp exp) (tagged-list-p (car exp) 'op)))
+
+(defun operation-exp-op (operation-exp)
+  (cadr (car operation-exp)))
+
+(defun operation-exp-operands (operation-exp)
+  (cdr operation-exp))
+
+(defun lookup-prim (symbol operations)
+  (let ((val (assoc symbol operations)))
+    (if val
+        (cadr val)
+        (error "Unknown operation: ~a -- ASSEMBLE" symbol))))
 
 
 ;;Local Variables:
