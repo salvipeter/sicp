@@ -10696,13 +10696,15 @@ and abandoning those where unification failes."
 
 ;;; Data-path diagram:
 
-;;                                      .
-;;      +---------+       .-------.    / \
-;;  +-->| product |   +--->\  +  /<---/ 1 \
-;;  |   +---+-----+   |     \___/    /_____\
-;;  |       |         |       |
-;;  |       |         |      (X) c<-i
-;; (X) p<-m |   +---------+   |         +-----+
+;;          +-(X)--------------------------+
+;;          | p<-1   +----------(X)-----+  |           
+;;          V        |          c<-1    |  |
+;;      +---------+  |    .-------.    / \ |
+;;  +-->| product |  | --->\  +  /<---/ 1 \|
+;;  |   +---+-----+  | |    \___/    /_____\
+;;  |       |        | |      |
+;;  |       |        V |     (X) c<-i
+;; (X) p<-m |   +------+--+   |         +-----+
 ;;  |       |   | counter |<--+         |  n  |
 ;;  |       V   +--+---+--+        ___  +--+--+
 ;;  | .-------.    |   |          /   \    |
@@ -10714,6 +10716,15 @@ and abandoning those where unification failes."
 ;;; Controller diagram:
 
 ;;      start
+;;        |
+;;        V
+;;     +------+
+;;     | p<-1 |
+;;     +--+---+
+;;        |
+;;     +------+
+;;     | c<-1 |
+;;     +--+---+
 ;;        |
 ;;        V
 ;;       / \
@@ -10732,6 +10743,251 @@ and abandoning those where unification failes."
 
 
 ;;; Section 5.1.1
+
+;;; GCD
+#+nil
+(controller
+ test-b
+ (test (op =) (reg b) (const 0))
+ (branch (label gcd-done))
+ (assign t (op rem) (reg a) (reg b))
+ (assign a (reg b))
+ (assign b (reg t))
+ (goto (label test-b))
+ gcd-done)
+
+;;; Exercise 5.2 START
+
+;;; Factorial
+#+nil
+(controller
+ (assign product (const 1))
+ (assign counter (const 1))
+ test-counter
+ (test (op >) (reg counter) (reg n))
+ (branch (label factorial-done))
+ (assign product (op *) (reg product) (reg counter))
+ (assign counter (op +) (reg counter) (const 1))
+ (goto (label test-counter))
+ factorial-done)
+
+;;; Exercise 5.2 END
+
+;;; GCD with READ/PERFORM
+#+nil
+(controller
+ gcd-loop
+ (assign a (op read))
+ (assign b (op read))
+ test-b
+ (test (op =) (reg b) (const 0))
+ (branch (label gcd-done))
+ (assign t (op rem) (reg a) (reg b))
+ (assign a (reg b))
+ (assign b (reg t))
+ (goto (label test-b))
+ gcd-done
+ (perform (op print) (reg a))
+ (goto (label gcd-loop)))
+
+
+;;; Section 5.1.2
+
+;;; GCD with expanded REM
+#+nil
+(controller
+ test-b
+ (test (op =) (reg b) (const 0))
+ (branch (label gcd-done))
+ (assign t (reg a))
+ rem-loop
+ (test (op <) (reg t) (reg b))
+ (branch (label rem-done))
+ (assign t (op -) (reg t) (reg b))
+ (goto (label rem-loop))
+ rem-done
+ (assign a (reg b))
+ (assign b (reg t))
+ (goto (label test-b))
+ gcd-done)
+
+;;; Exercise 5.3 START
+
+;;; SQRT with GOOD-ENOUGH? and IMPROVE as primitives:
+#+nil
+(controller
+ (assign guess (const 1.0))
+ iter-start
+ (test (op good-enough?) (reg guess))
+ (branch (label iter-end))
+ (assign guess (op improve) (reg guess))
+ (goto (label iter-start))
+ iter-end)
+
+;;; SQRT with GOOD-ENOUGH? expanded:
+#+nil
+(controller
+ (assign guess (const 1.0))
+ iter-start
+ (assign error (op square) (reg guess))
+ (assign error (op -) (reg error) (reg x))
+ (assign error (op abs) (reg error))
+ (test (op <) (reg guess) (const 0.001))
+ (branch (label iter-end))
+ (assign guess (op improve) (reg guess))
+ (goto (label iter-start))
+ iter-end)
+
+;;; SQRT with IMPROVE also expanded:
+#+nil
+(controller
+ (assign guess (const 1.0))
+ iter-start
+ (assign error (op square) (reg guess))
+ (assign error (op -) (reg error) (reg x))
+ (assign error (op abs) (reg error))
+ (test (op <) (reg guess) (const 0.001))
+ (branch (label iter-end))
+ (assign improved (op /) (reg x) (reg guess))
+ (assign guess (op average) (reg guess) (reg improved))
+ (goto (label iter-start))
+ iter-end)
+
+;;; Data-path diagrams can be drawn accordingly...
+
+;;; Exercise 5.3 END
+
+
+;;; Section 5.1.4
+
+;;; Factorial recursively
+#+nil
+(controller
+ (assign continue (label fact-done))    ; set up final return address
+ fact-loop
+ (test (op =) (reg n) (const 1))
+ (branch (label base-case))
+ ;; Set up for the recursive call by saving `n' and `continue'.
+ ;; Set up `continue' so that the computation will continue
+ ;; at `after-fact' when the subroutine returns.
+ (save continue)
+ (save n)
+ (assign n (op -) (reg n) (const 1))
+ (assign continue (label after-fact))
+ (goto (label fact-loop))
+ after-fact
+ (restore n)
+ (restore continue)
+ (assign val (op *) (reg n) (reg val))  ; `val' now contains n(n - 1)!
+ (goto (reg continue))                  ; return to caller
+ base-case
+ (assign val (const 1))                 ; base case: 1! = 1
+ (goto (reg continue))                  ; return to caller
+ fact-done)
+
+;;; Fibonacci
+#+nil
+(controller
+ (assign continue (label fib-done))
+ fib-loop
+ (test (op <) (reg n) (const 2))
+ (branch (label immediate-answer))
+ ;; set up to compute Fib(n - 1)
+ (save continue)
+ (assign continue (label afterfib-n-1))
+ (save n)                               ; save old value of `n'
+ (assign n (op -) (reg n) (const 1))    ; clobber `n' to n - 1
+ (goto (label fib-loop))                ; perform recursive call
+ afterfib-n-1                           ; upon return, `val' contains Fib(n - 1)
+ (restore n)
+ (restore continue)
+ ;; set up to compute _Fib_(n - 2)
+ (assign n (op -) (reg n) (const 2))
+ (save continue)
+ (assign continue (label afterfib-n-2))
+ (save val)                             ; save Fib(n - 1)
+ (goto (label fib-loop))
+ afterfib-n-2                           ; upon return, `val' contains Fib(n - 2)
+ (assign n (reg val))                   ; `n' now contains Fib(n - 2)
+ (restore val)                          ; `val' now contains Fib(n - 1)
+ (restore continue)
+ (assign val                            ;  Fib(n - 1) +  Fib(n - 2)
+         (op +) (reg val) (reg n))
+ (goto (reg continue))                  ; return to caller, answer is in `val'
+ immediate-answer
+ (assign val (reg n))                   ; base case:  Fib(n) = n
+ (goto (reg continue))
+ fib-done)
+
+;;; Exercise 5.4 START
+
+;;; Recursive exponentiation
+#+nil
+(controller
+ (assign continue (label expt-done))
+ expt-loop
+ (test (op =) (reg n) (const 0))
+ (branch (label immediate-answer))
+ (save continue)
+ (assign continue (label after-expt-n-1))
+ (save n)
+ (assign n (op -) (reg n) (const 1))
+ (goto (label expt-loop))
+ after-expt-n-1
+ (assign val (op *) val b)
+ (goto (reg continue))
+ immediate-answer
+ (assign val (const 1))
+ (goto (reg continue))
+ expt-done)
+
+;;; Iterative exponentiation
+#+nil
+(controller
+ (assign counter (reg n))
+ (assign product (const 1))
+ expt-loop
+ (test (op =) (reg counter) (const 0))
+ (branch (label expt-done))
+ (assign counter (op -) (reg counter) (const 1))
+ (assign product (op *) (reg product) (reg b))
+ (goto (label expt-loop))
+ expt-done)
+
+;;; Exercise 5.4 END
+
+;;; Exercise 5.5 START
+
+;;; (fact 3)                  ; stack = ()
+;;;   (fact 2)                ; stack = (3 FACT-DONE)
+;;;     (fact 1)              ; stack = (2 AFTER-FACT 3 FACT-DONE)
+;;;     <- 1                  ; stack = (3 FACT-DONE)
+;;;   <- 2                    ; stack = ()
+;;; <- 6
+
+;;; (fib 3)                   ; stack = ()
+;;;   (fib 2)                 ; stack = (3 FIB-DONE)
+;;;     (fib 1)               ; stack = (2 AFTERFIB-N-1 3 FIB-DONE)
+;;;     <- 1                  ; stack = (3 FIB-DONE)
+;;;     (fib 0)               ; stack = (1 AFTERFIB-N-2 3 FIB-DONE)
+;;;     <- 0                  ; stack = (3 FIB-DONE)
+;;;   <- 1                    ; stack = ()
+;;;   (fib 1)                 ; stack = (1 FIB-DONE)
+;;;   <- 1                    ; stack = ()
+;;; <- 2
+
+;;; Exercise 5.5 END
+
+;;; Exercise 5.6 START
+
+;;; After calling Fib(n-1), we restore CONTINUE,
+;;; then save it again before calling Fib(n-1).
+;;; These instructions can be omitted.
+
+;;; Exercise 5.6 END
+
+
+;;; Section 5.2
 
 
 ;;Local Variables:
