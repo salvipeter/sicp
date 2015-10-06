@@ -10795,6 +10795,7 @@ This has the drawback that compilation errors are signaled at runtime."
     ((rem #'mod) (= #'=) (read #'read) (print #'print))
     "GCD with READ/PERFORM."
   gcd-loop
+  (perform (op print) (const "Enter two numbers: "))
   (assign a (op read))
   (assign b (op read))
   test-b
@@ -11009,6 +11010,35 @@ This has the drawback that compilation errors are signaled at runtime."
 ;;; then save it again before calling Fib(n-1).
 ;;; These instructions can be omitted.
 
+(defmachine fib-5 (n) (continue val) val
+    ((< #'<) (- #'-) (+ #'+))
+    "Fibonacci with less instructions."
+  (assign continue (label fib-done))
+  fib-loop
+  (test (op <) (reg n) (const 2))
+  (branch (label immediate-answer))
+  (save continue)
+  (assign continue (label afterfib-n-1))
+  (save n)
+  (assign n (op -) (reg n) (const 1))
+  (goto (label fib-loop))
+  afterfib-n-1
+  (restore n)
+  (assign n (op -) (reg n) (const 2))
+  (assign continue (label afterfib-n-2))
+  (save val)
+  (goto (label fib-loop))
+  afterfib-n-2
+  (assign n (reg val))
+  (restore val)
+  (restore continue)
+  (assign val (op +) (reg val) (reg n))
+  (goto (reg continue))
+  immediate-answer
+  (assign val (reg n))
+  (goto (reg continue))
+  fib-done)
+
 ;;; Exercise 5.6 END
 
 
@@ -11034,10 +11064,11 @@ This has the drawback that compilation errors are signaled at runtime."
     machine))
 
 (defun make-register (name)
-  (declare (ignore name))
+  "Minor modification: added NAME message."
   (let ((contents '*unassigned*))
     (labels ((dispatch (message)
-               (cond ((eq message 'get) contents)
+               (cond ((eq message 'name) name)
+                     ((eq message 'get) contents)
                      ((eq message 'set)
                       (lambda (value) (setf contents value)))
                      (t (error "Unknown request: ~a -- REGISTER" message)))))
@@ -11414,12 +11445,223 @@ This has the drawback that compilation errors are signaled at runtime."
 ;;; Exercise 5.10 END
 
 ;;; Exercise 5.11 START
+
+;;; (a)
+(defmachine fib-6 (n) (continue val) val
+    ((< #'<) (- #'-) (+ #'+))
+    "Fibonacci with even less instructions."
+  (assign continue (label fib-done))
+  fib-loop
+  (test (op <) (reg n) (const 2))
+  (branch (label immediate-answer))
+  (save continue)
+  (assign continue (label afterfib-n-1))
+  (save n)
+  (assign n (op -) (reg n) (const 1))
+  (goto (label fib-loop))
+  afterfib-n-1
+  (restore n)
+  (assign n (op -) (reg n) (const 2))
+  (assign continue (label afterfib-n-2))
+  (save val)
+  (goto (label fib-loop))
+  afterfib-n-2
+  (restore n)                           ; restore VAL into N
+  (restore continue)
+  (assign val (op +) (reg val) (reg n))
+  (goto (reg continue))
+  immediate-answer
+  (assign val (reg n))
+  (goto (reg continue))
+  fib-done)
+
+;;; (b)
+(defun make-save-2 (inst machine stack pc)
+  (let ((reg (get-register machine (stack-inst-reg-name inst))))
+    (lambda ()
+      (push% stack (list (funcall reg 'name) (get-contents reg)))
+      (advance-pc pc))))
+
+(defun make-restore-2 (inst machine stack pc)
+  (let ((reg (get-register machine (stack-inst-reg-name inst))))
+    (lambda ()
+      (destructuring-bind (name val) (pop% stack)
+        (if (eq name (funcall reg 'name))
+            (set-contents reg val)
+            (error "Restoring ~a into ~a" name (funcall reg 'name))))
+      (advance-pc pc))))
+
+;;; (c)
+;;; Alternative solution, using a hash table.
+;;; This way we don't have to modify MAKE-NEW-MACHINE.
+
+(defun make-stack-2 ()
+  (let ((table (make-hash-table)))
+    (labels ((push-reg (r)
+               (let ((name (funcall r 'name)))
+                 (setf (gethash name table)
+                       (cons (get-contents r)
+                             (gethash name table)))))
+             (pop-reg (r)
+               (let ((name (funcall r 'name)))
+                 (if (gethash name table)
+                     (pop (gethash name table))
+                     (error "Not found in the stack: ~a" name))))
+             (initialize ()
+               (setf table (make-hash-table))
+               'done)
+             (dispatch (message)
+               (cond ((eq message 'push) #'push-reg)
+                     ((eq message 'pop) #'pop-reg)
+                     ((eq message 'initialize) (initialize))
+                     (t (error "Unknown request: ~a -- STACK" message)))))
+      #'dispatch)))
+
+(defun make-save-3 (inst machine stack pc)
+  (let ((reg (get-register machine (stack-inst-reg-name inst))))
+    (lambda ()
+      (funcall (funcall stack 'push) reg)
+      (advance-pc pc))))
+
+(defun make-restore-3 (inst machine stack pc)
+  (let ((reg (get-register machine (stack-inst-reg-name inst))))
+    (lambda ()
+      (set-contents reg (funcall (funcall stack 'pop) reg))
+      (advance-pc pc))))
+
+(defmachine test-multistack () (a b) a ((list #'list))
+    "Test for all three variations.
+Return values:
+ (a): (B A),
+ (b): error,
+ (c): (A B)."
+  (assign a (const a))
+  (save a)
+  (assign b (const b))
+  (save b)
+  (assign a (const c))
+  (assign b (const d))
+  (restore a)
+  (restore b)
+  (assign a (op list) (reg a) (reg b)))
+
 ;;; Exercise 5.11 END
 
 ;;; Exercise 5.12 START
+
+;;; TODO
+;; The simulator can be used to help determine the
+;; data paths required for implementing a machine with a given
+;; controller.  Extend the assembler to store the following
+;; information in the machine model:
+;; * a list of all instructions, with duplicates removed, sorted
+;;   by instruction type (`assign', `goto', and so on);
+;; * a list (without duplicates) of the registers used to hold
+;;   entry points (these are the registers referenced by `goto'
+;;   instructions);
+;; * a list (without duplicates) of the registers that are `save'd
+;;   or `restore'd;
+;; * for each register, a list (without duplicates) of the sources
+;;   from which it is assigned (for example, the sources for
+;;   register `val' in the factorial machine of Figure 5.11
+;;   are `(const 1)' and `((op *) (reg n) (reg val))').
+;; Extend the message-passing interface to the machine to provide
+;; access to this new information.  To test your analyzer, define the
+;; Fibonacci machine from Figure 5-12 and examine the lists
+;; you constructed.
+
+;;; This is not a complex problem, but quite a lot of work:
+;;; - new messages in MAKE-NEW-MACHINE (get-analysis, set-analysis)
+;;; - changes in all sub-functions to update the data
+;;; - postprocessing for display (sorting etc.)
+
 ;;; Exercise 5.12 END
 
 ;;; Exercise 5.13 START
+
+(defun make-new-machine-2 ()
+  "With Just-In-Time register creation."
+  (let ((pc (make-register 'pc))
+        (flag (make-register 'flag))
+        (stack (make-stack))
+        (the-instruction-sequence '()))
+    (let ((the-ops
+           (list (list 'initialize-stack
+                       (lambda () (funcall stack 'initialize)))))
+          (register-table
+           (list (list 'pc pc) (list 'flag flag))))
+      (labels ((lookup-register (name)
+                 (let ((val (assoc name register-table)))
+                   (if val
+                       (cadr val)
+                       (let ((r (make-register name))) ; JIT register
+                         (setf register-table
+                               (cons (list name r) register-table))
+                         r))))
+               (execute ()
+                 (let ((insts (get-contents pc)))
+                   (if (null insts)
+                       'done
+                       (progn
+                         (funcall (instruction-execution-proc (car insts)))
+                         (execute)))))
+               (dispatch (message)
+                 (cond ((eq message 'start)
+                        (set-contents pc the-instruction-sequence)
+                        (execute))
+                       ((eq message 'install-instruction-sequence)
+                        (lambda (seq) (setf the-instruction-sequence seq)))
+                       ((eq message 'get-register) #'lookup-register)
+                       ((eq message 'install-operations)
+                        (lambda (ops) (setf the-ops (append the-ops ops))))
+                       ((eq message 'stack) stack)
+                       ((eq message 'operations) the-ops)
+                       (t (error "Unknown request: ~a -- MACHINE" message)))))
+        #'dispatch))))
+
+(defun make-machine-2 (ops controller-text)
+  "Without register names."
+  (let ((machine (make-new-machine-2)))
+    (funcall (funcall machine 'install-operations) ops)
+    (funcall (funcall machine 'install-instruction-sequence)
+             (assemble controller-text machine))
+    machine))
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defmacro defmachine-2 (name vars output funs doc &body body)
+    "Only input variables are declared."
+    (let ((machine (gensym "MACHINE"))
+          (fns (mapcar (lambda (f)
+                         `(list ',(first f) ,(second f)))
+                       funs)))
+      `(defun ,name ,vars
+         ,doc
+         (let ((,machine (make-machine-2 (list ,@fns) ',body)))
+           (mapc (lambda (var val)
+                   (set-register-contents ,machine var val))
+                 ',vars (list ,@vars))
+           (start ,machine)
+           (get-register-contents ,machine ',output))))))
+
+;;; Test
+(defmachine-2 gcd-5 () a
+    ((rem #'mod) (= #'=) (read #'read) (print #'print))
+    "Without explicit auxiliary variables."
+  gcd-loop
+  (perform (op print) (const "Enter two numbers: "))
+  (assign a (op read))
+  (assign b (op read))
+  test-b
+  (test (op =) (reg b) (const 0))
+  (branch (label gcd-done))
+  (assign tmp (op rem) (reg a) (reg b))
+  (assign a (reg b))
+  (assign b (reg tmp))
+  (goto (label test-b))
+  gcd-done
+  (perform (op print) (reg a))
+  (goto (label gcd-loop)))
+
 ;;; Exercise 5.13 END
 
 
