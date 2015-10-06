@@ -3,7 +3,7 @@
 ;;; SICP code translated to Common Lisp, with exercises
 
 ;; The eval at the end of this file installs a local feature
-;; that hides the solutions to the exercises (requires Emacs 22).
+;; that hides the solutions to the exercises (requires Emacs >=22).
 ;;
 ;; Usage:
 ;;
@@ -7622,7 +7622,7 @@ Operands are (X Y)."
 (defun first-frame (env)
   (car env))
 
-(defparameter *the-empty-environment* '())
+(defparameter +the-empty-environment+ '())
 
 (defun make-env-frame (variables values)
   "MAKE-FRAME was used in Section 2.2.4."
@@ -7655,7 +7655,7 @@ This is easier to understand than the nested defines."
                     (car vals))
                    (t (scan (cdr vars) (cdr vals) env))))
            (env-loop (env)
-             (if (eq env *the-empty-environment*)
+             (if (eq env +the-empty-environment+)
                  (error "Unbound variable: ~a" var)
                  (let ((frame (first-frame env)))
                    (scan (frame-variables frame) (frame-values frame) env)))))
@@ -7670,7 +7670,7 @@ This is easier to understand than the nested defines."
                     (setf (car vals) val))
                    (t (scan (cdr vars) (cdr vals) env))))
            (env-loop (env)
-             (if (eq env *the-empty-environment*)
+             (if (eq env +the-empty-environment+)
                  (error "Unbound variable: ~a -- SET!" var)
                  (let ((frame (first-frame env)))
                    (scan (frame-variables frame) (frame-values frame) env)))))
@@ -7722,7 +7722,7 @@ FINAL is a function taking no arguments, called when not found."
 (defun find-var-in-env (env var exp)
   "EXP is a function taking a list, the head is what we searched for."
   (labels ((env-loop (env)
-             (if (eq env *the-empty-environment*)
+             (if (eq env +the-empty-environment+)
                  (error "Unbound variable: ~a" var)
                  (let ((frame (first-frame env))
                        (next (enclosing-environment env)))
@@ -7767,7 +7767,7 @@ FINAL is a function taking no arguments, called when not found."
 
 (defun make-unbound-1 (var env)
   "In all frames."
-  (unless (eq env *the-empty-environment*)
+  (unless (eq env +the-empty-environment+)
     (make-unbound var env)
     (make-unbound-1 var (enclosing-environment env))))
 
@@ -7779,7 +7779,7 @@ FINAL is a function taking no arguments, called when not found."
 (defun setup-environment ()
   (let ((initial-env (extend-environment (primitive-procedure-names)
                                          (primitive-procedure-objects)
-                                         *the-empty-environment*)))
+                                         +the-empty-environment+)))
     (define-variable 'true 'true initial-env)
     (define-variable 'false 'false initial-env)
     initial-env))
@@ -10121,7 +10121,7 @@ Restores the original value at a failure."
   (stream-flatmap
    (lambda (frame)
      (if (stream-null (qeval (negated-query operands)
-                               (singleton-stream frame)))
+                             (singleton-stream frame)))
          (singleton-stream frame)
          +the-empty-stream+))
    frame-stream))
@@ -10459,34 +10459,279 @@ Restores the original value at a failure."
   (cons (make-binding variable value) frame))
 
 ;;; Exercise 4.71 START
+
+;;; There are differences only in cases with infinite loops,
+;;; e.g. the one in 4.4.3:
+#+nil
+(add-assertions '((married Minnie Mickey)
+                  (rule (married ?x ?y) (married ?y ?x))))
+;;; Then in the QUERY-DRIVER-LOOP entering (married Mickey ?who)
+;;; will print "(MARRIED MICKEY MINNIE)" infinitely,
+;;; but with the Louis Reasoner's version, it doesn't print anything.
+
+;;; This is because if rule application is an infinite procedure,
+;;; then no stream will be constructed, unless it is delayed first.
+
 ;;; Exercise 4.71 END
 
 ;;; Exercise 4.72 START
+
+;;; So that we can see more of the output when one stream is infinite.
+;;; Example with STREAM-FLATMAP:
+#+nil
+(stream-flatmap (lambda (x)
+                  (labels ((from (y) (cons-stream y (from (1+ y)))))
+                    (from x)))
+                (cons-stream 1 (cons-stream 2 +the-empty-stream+)))
+;;; Here we will get (1 1 2 2 3 3 ...) instead of
+;;; just the mapping of the first argument, i.e. (1 2 3 ...)
+
 ;;; Exercise 4.72 END
 
 ;;; Exercise 4.73 START
+
+;;; It wouldn't work for infinite streams.
+
 ;;; Exercise 4.73 END
 
 ;;; Exercise 4.74 START
+
+(defun simple-stream-flatmap (proc s)
+  (simple-flatten (stream-mapcar proc s)))
+
+(defun simple-flatten (stream)
+  (flet ((not-empty-p (x) (not (stream-null x))))
+    (stream-mapcar #'stream-car
+                   (stream-filter #'not-empty-p stream))))
+
+;;; No, the result will be the same.
+
 ;;; Exercise 4.74 END
 
 ;;; Exercise 4.75 START
+
+(defun unique-query (exps) (car exps))
+
+(defun singleton-stream-p (stream)
+  (and (not (stream-null stream))
+       (stream-null (stream-cdr stream))))
+
+(defun uniquely-asserted (query frame-stream)
+  (simple-stream-flatmap
+   (lambda (frame)
+     (let ((result (qeval (unique-query query)
+                          (singleton-stream frame))))
+       (if (singleton-stream-p result)
+           result
+           +the-empty-stream+)))
+   frame-stream))
+
+(setf (get 'unique 'qeval) #'uniquely-asserted)
+
+;;; Tests:
+;;; (query '(unique (job ?x (computer wizard))))
+;;; (query '(and (job ?x ?j) (unique (job ?anyone ?j))))
+;;; (query '(and (supervisor ?x ?y) (unique (supervisor ?z ?y))))
+
 ;;; Exercise 4.75 END
 
 ;;; Exercise 4.76 START
+
+(defun unify-frames (f1 f2)
+  "Unifies two frames by going through all variables of F1,
+and extending F2 as required."
+  (if (null f1)
+      f2
+      (let* ((var (car (first f1)))
+             (val (cdr (first f1)))
+             (f2+ (extend-if-possible var val f2)))
+        (or (and (eq f2+ 'failed) 'failed)
+            (unify-frames (cdr f1) f2+)))))
+
+(defun unify-frame-streams (frames1 frames2)
+  "Unifies two frame-streams by trying all pairings,
+and abandoning those where unification failes."
+  (stream-flatmap (lambda (f1)
+                    (stream-filter
+                     (lambda (f) (not (eq f 'failed)))
+                     (stream-mapcar (lambda (f2)
+                                      (unify-frames f1 f2))
+                                    frames2)))
+                  frames1))
+
+(defun conjoin-2 (conjuncts frame-stream)
+  (if (empty-conjunction-p conjuncts)
+      frame-stream
+      (unify-frame-streams
+       (qeval (first-conjunct conjuncts) frame-stream)
+       (conjoin-2 (rest-conjuncts conjuncts) frame-stream))))
+
+;;; (setf (get 'and 'qeval) #'conjoin-2)
+
+;;; Test:
+#+nil
+(query '(and (job ?x (computer programmer))
+             (supervisor ?x ?y)))
+
 ;;; Exercise 4.76 END
 
 ;;; Exercise 4.77 START
+
+;;; TODO
+;; In Section 4.4.3 we saw that not and lisp-value can cause the
+;; query language to give “wrong” answers if these filtering
+;; operations are applied to frames in which variables are
+;; unbound. Devise a way to fix this shortcoming. One idea is to
+;; perform the filtering in a “delayed” manner by appending to the
+;; frame a “promise” to filter that is fulfilled only when enough
+;; variables have been bound to make the operation possible. We
+;; could wait to perform filtering until all other operations have
+;; been performed.  However, for efficiency’s sake, we would like to
+;; perform filtering as soon as possible so as to cut down on the
+;; number of intermediate frames generated.
+
+;;; The problem in question:
+#+nil
+(query '(and (not (job ?x (computer programmer)))
+             (supervisor ?x ?y)))
+
+;;; We will need functions to extract the variables
+;;; from query expressions and frames:
+
+(defun exp-variables (exp)
+  (cond ((atom exp) '())
+        ((varp exp) (cdr exp))
+        (t (append (exp-variables (car exp))
+                   (exp-variables (cdr exp))))))
+
+(defun exp-variables-unique (exp)
+  (remove-duplicates (exp-variables exp)))
+
+(defun frame-variables-2 (frame)
+  (mapcar #'cadar frame))
+
+;;; Then NEGATE would go like this...
+
+(defun negate-2 (operands frame-stream)
+  "Evaluated only when all variables are in the frame"
+  (let ((vars (exp-variables-unique operands)))
+    (labels ((checked-eval (frame)
+               (if (every (lambda (v)
+                            (member v (frame-variables-2 frame)))
+                          vars)
+                   (if (stream-null (qeval (negated-query operands)
+                                           (singleton-stream frame)))
+                       (singleton-stream frame)
+                       +the-empty-stream+)
+                   (delay (checked-eval frame)))))
+      (stream-flatmap #'checked-eval frame-stream))))
+
+;;; (setf (get 'not 'qeval) #'negate-2)
+
+;;; But this would create delayed frames,
+;;; which would have to be forced elsewhere,
+;;; needing more extensive changes...
+
 ;;; Exercise 4.77 END
 
 ;;; Exercise 4.78 START
+
+;;; TODO
+;; Redesign the query language as a nondeterministic program to be
+;; implemented using the evaluator of Section 4.3, rather than as a
+;; stream process. In this approach, each query will produce a single
+;; answer (rather than the stream of all answers) and the user can
+;; type try-again to see more answers. You should find that much of
+;; the mechanism we built in this section is subsumed by
+;; non-deterministic search and backtracking. You will probably also
+;; find, however, that your new query language has subtle differences
+;; in behavior from the one implemented here.  Can you find examples
+;; that illustrate this difference?
+
 ;;; Exercise 4.78 END
 
 ;;; Exercise 4.79 START
+
+;;; TODO
+;; When we implemented the Lisp evaluator in Section 4.1, we saw how
+;; to use local environments to avoid name conflicts between the
+;; parameters of procedures. For example, in evaluating
+
+#|
+  (define (square x) (* x x))
+  (define (sum-of-squares x y)
+     (+ (square x) (square y)))
+  (sum-of-squares 3 4)
+|#
+
+;; there is no confusion between the x in square and the x in
+;; sum-of-squares, because we evaluate the body of each procedure in
+;; an environment that is specially constructed to contain bindings
+;; for the local variables. In the query system, we used a different
+;; strategy to avoid name conflicts in applying rules. Each time we
+;; apply a rule we rename the variables with new names that are
+;; guaranteed to be unique.  e analogous strategy for the Lisp
+;; evaluator would be to do away with local environments and simply
+;; rename the variables in the body of a procedure each time we apply
+;; the procedure.
+
+;; Implement for the query language a rule-application method
+;; that uses environments rather than renaming. See if you
+;; can build on your environment structure to create constructs
+;; in the query language for dealing with large systems, such
+;; as the rule analog of block-structured procedures. Can you
+;; relate any of this to the problem of making deductions in a
+;; context (e.g., "If I supposed that P were true, then I would be
+;; able to deduce A and B.") as a method of problem solving?
+
+;; (This problem is open-ended. A good answer is probably
+;; worth a Ph.D.)
+
 ;;; Exercise 4.79 END
 
 
 ;;; Section 5.1
+
+;;; Exercise 5.1 START
+
+;;; Data-path diagram:
+
+;;                                      .
+;;      +---------+       .-------.    / \
+;;  +-->| product |   +--->\  +  /<---/ 1 \
+;;  |   +---+-----+   |     \___/    /_____\
+;;  |       |         |       |
+;;  |       |         |      (X) c<-i
+;; (X) p<-m |   +---------+   |         +-----+
+;;  |       |   | counter |<--+         |  n  |
+;;  |       V   +--+---+--+        ___  +--+--+
+;;  | .-------.    |   |          /   \    |
+;;  |  \  *  /<----+   +-------->|  >  |<--+
+;;  |   \___/                     \___/
+;;  |     |
+;;  +-----+
+
+;;; Controller diagram:
+
+;;      start
+;;        |
+;;        V
+;;       / \
+;;      /   \  no  +------+
+;; +-->.  >  .---->| p<-m |
+;; |    \   /      +---+--+
+;; |     \ /           |
+;; |      | yes        V
+;; |      V        +------+
+;; |     done      | c<-i |
+;; |               +---+--+
+;; |                   |
+;; +-------------------+
+
+;;; Exercise 5.1 END
+
+
+;;; Section 5.1.1
 
 
 ;;Local Variables:
