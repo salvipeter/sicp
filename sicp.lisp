@@ -10747,9 +10747,9 @@ and abandoning those where unification failes."
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defmacro defmachine (name vars tmpvars output funs doc &body body)
     "For convenience.
-Machine creation is inside the DEFUN,
-so machine-programs can be compiled even if
-all of the machine codes comes only later."
+Machine creation is inside the DEFUN, so machine-programs can be compiled
+even if all of the machine codes comes only later.
+This has the drawback that compilation errors are signaled at runtime."
     (let ((machine (gensym "MACHINE"))
           (fns (mapcar (lambda (f)
                          `(list ',(first f) ,(second f)))
@@ -11051,13 +11051,11 @@ all of the machine codes comes only later."
 
 (defun make-stack ()
   (let ((s '()))
-    (labels ((push-1 (x) (setf s (cons x s)))
+    (labels ((push-1 (x) (push x s))
              (pop-1 ()
                (if (null s)
                    (error "Empty stack -- POP")
-                   (let ((top (car s)))
-                     (setf s (cdr s))
-                     top)))
+                   (pop s)))
              (initialize ()
                (setf s '())
                'done)
@@ -11140,19 +11138,20 @@ all of the machine codes comes only later."
                     (update-insts insts labels machine)
                     insts)))
 
-(defun extract-labels (text receive)
+(defun extract-labels-2 (text receive)
+  "See Exercise 5.8 for a better version."
   (if (null text)
       (funcall receive '() '())
-      (extract-labels (cdr text)
-                      (lambda (insts labels)
-                        (let ((next-inst (car text)))
-                          (if (symbolp next-inst)
-                              (funcall receive insts
-                                       (cons (make-label-entry next-inst insts)
-                                             labels))
-                              (funcall receive (cons (make-instruction next-inst)
-                                                     insts)
-                                       labels)))))))
+      (extract-labels-2 (cdr text)
+                        (lambda (insts labels)
+                          (let ((next-inst (car text)))
+                            (if (symbolp next-inst)
+                                (funcall receive insts
+                                         (cons (make-label-entry next-inst insts)
+                                               labels))
+                                (funcall receive (cons (make-instruction next-inst)
+                                                       insts)
+                                         labels)))))))
 
 (defun update-insts (insts labels machine)
   (let ((pc (get-register machine 'pc))
@@ -11186,6 +11185,45 @@ all of the machine codes comes only later."
     (if val
         (cdr val)
         (error "Undefined label: ~a -- ASSEMBLE" label-name))))
+
+;;; Exercise 5.8 START
+
+;;; Register A contains 3,
+;;; because the instructions are processed from the end,
+;;; so the first label is CONSed later, resulting in the
+;;; label list (START HERE1 HERE2 THERE), and
+;;; LOOKUP-LABEL finds the first match.
+
+(defun extract-labels (text receive)
+  "Checks multiple labels."
+  (if (null text)
+      (funcall receive '() '())
+      (extract-labels (cdr text)
+                      (lambda (insts labels)
+                        (let ((next-inst (car text)))
+                          (if (symbolp next-inst)
+                              (if (member next-inst labels :key #'car)
+                                  (error "Multiply defined label: ~a" next-inst)
+                                  (funcall receive insts
+                                           (cons (make-label-entry next-inst insts)
+                                                 labels)))
+                              (funcall receive (cons (make-instruction next-inst)
+                                                     insts)
+                                       labels)))))))
+
+(defmachine ambiguous-goto () (a) a ()
+    "Two HERE labels."
+  start
+  (goto (label here))
+  here                                  ; here1
+  (assign a (const 3))
+  (goto (label there))
+  here                                  ; here2
+  (assign a (const 4))
+  (goto (label there))
+  there)
+
+;;; Exercise 5.8 END
 
 
 ;;; Section 5.2.3
@@ -11335,6 +11373,57 @@ all of the machine codes comes only later."
     (if val
         (cadr val)
         (error "Unknown operation: ~a -- ASSEMBLE" symbol))))
+
+;;; Exercise 5.9 START
+
+(defun make-operation-exp-2 (exp machine labels operations)
+  "Cannot operate on labels."
+  (let ((op (lookup-prim (operation-exp-op exp) operations))
+        (aprocs (mapcar (lambda (e)
+                          (if (label-exp-p e)
+                              (error "Operations on labels are not allowed: ~a ~a"
+                                     (operation-exp-op exp) e)
+                              (make-primitive-exp e machine labels)))
+                        (operation-exp-operands exp))))
+    (lambda ()
+      (apply op (mapcar (lambda (p) (funcall p)) aprocs)))))
+
+(defmachine test-label-operation () (a) a ((print #'print))
+    "Prints the START label."
+  (assign a (const 42))
+  start
+  (perform (op print) (label start)))
+
+;;; Exercise 5.9 END
+
+;;; Exercise 5.10 START
+
+;;; It is possible, just by redefining the accessors.
+;;; For example, a new register syntax would redefine
+;;; REGISTER-EXP-P and REGISTER-EXP-REG.
+
+;;; Let the new syntax be (x) instead of (reg x).
+(defun register-exp-p-2 (exp) (and (consp exp) (null (cdr exp))))
+(defun register-exp-reg-2 (exp) (car exp))
+
+(defmachine test-new-register-syntax () (a) a ((+ #'+))
+    "Prints the START label."
+  (assign a (const 21))
+  (assign a (op +) (a) (a)))
+
+;;; Exercise 5.10 END
+
+;;; Exercise 5.11 START
+;;; Exercise 5.11 END
+
+;;; Exercise 5.12 START
+;;; Exercise 5.12 END
+
+;;; Exercise 5.13 START
+;;; Exercise 5.13 END
+
+
+;;; Section 5.2.4
 
 
 ;;Local Variables:
