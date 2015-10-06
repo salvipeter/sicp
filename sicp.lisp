@@ -11438,7 +11438,7 @@ This has the drawback that compilation errors are signaled at runtime."
 (defun register-exp-reg-2 (exp) (car exp))
 
 (defmachine test-new-register-syntax () (a) a ((+ #'+))
-    "Prints the START label."
+    "Multiplies a register by two."
   (assign a (const 21))
   (assign a (op +) (a) (a)))
 
