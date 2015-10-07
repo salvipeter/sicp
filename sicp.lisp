@@ -12090,7 +12090,145 @@ Some function calls are updated to the versions in the exercises."
 ;;; Exercise 5.19 END
 
 
-;;; Section 5.3
+;;; Section 5.3.1
+
+;;; Exercise 5.20 START
+
+;;     +--------------------------+
+;;     |                          |
+;;     | +-----------+            |
+;;     | |           |            |
+;;     V V           |            |
+;;    +---+---+    +-|-+---+    +-|-+--/+
+;;    |   |   |    |   |  ----->|   | / |
+;;  0 +-|-+-|-+  1 +---+---+  2 +---+/--+
+;;      |   |
+;;      V   V
+;;   +---+ +---+
+;;   | 1 | | 2 |
+;;   +---+ +---+
+;;
+;; Index      0    1    2
+;;          +----+----+----+--
+;; the-cars | n1 | p0 | p0 | ...
+;;          +----+----+----+--
+;; the-cdrs | n2 | p2 | e0 | ...
+;;          +----+----+----+--
+
+;;; Exercise 5.20 END
+
+;;; Exercise 5.21 START
+
+(defmachine-3 count-leaves-3 (tree) (continue val) val
+    ((null? #'null) (atom? #'atom) (car #'car) (cdr #'cdr) (+ #'+))
+    "Without explicit counter."
+  (assign continue (label count-leaves-done))
+  count-loop
+  (test (op null?) (reg tree))
+  (branch (label root))
+  (test (op atom?) (reg tree))
+  (branch (label leaf))
+  (save tree)
+  (assign tree (op car) (reg tree))
+  (save continue)
+  (assign continue (label after-car))
+  (goto (label count-loop))
+  after-car
+  (restore continue)
+  (restore tree)
+  (assign tree (op cdr) (reg tree))
+  (save continue)
+  (assign continue (label after-cdr))
+  (save val)
+  (goto (label count-loop))
+  after-cdr
+  (restore tree)                        ; contains previous val
+  (restore continue)
+  (assign val (op +) (reg val) (reg tree))
+  (goto (reg continue))
+  root
+  (assign val (const 0))
+  (goto (reg continue))
+  leaf
+  (assign val (const 1))
+  (goto (reg continue))
+  count-leaves-done)
+
+(defmachine-3 count-leaves-4 (tree) (continue n) n
+    ((null? #'null) (atom? #'atom) (car #'car) (cdr #'cdr) (+ #'+))
+    "With explicit counter."
+  (assign continue (label count-leaves-done))
+  (assign n (const 0))
+  count-loop
+  (test (op null?) (reg tree))
+  (branch (label root))
+  (test (op atom?) (reg tree))
+  (branch (label leaf))
+  (save tree)
+  (assign tree (op car) (reg tree))
+  (save continue)
+  (assign continue (label after-car))
+  (goto (label count-loop))
+  after-car
+  (restore continue)
+  (restore tree)
+  (assign tree (op cdr) (reg tree))
+  (goto (label count-loop))
+  root
+  (goto (reg continue))
+  leaf
+  (assign n (op +) (reg n) (const 1))
+  (goto (reg continue))
+  count-leaves-done)
+
+;;; Exercise 5.21 END
+
+;;; Exercise 5.22 START
+
+(defmachine-3 append-3 (x y) (continue val) val
+    ((cons #'cons) (car #'car) (cdr #'cdr) (null? #'null))
+    "Non-destructive append."
+  (assign continue (label append-done))
+  append-loop
+  (test (op null?) (reg x))
+  (branch (label immediate-answer))
+  (save x)
+  (assign x (op cdr) (reg x))
+  (save continue)
+  (assign continue (label after-cdr))
+  (goto (label append-loop))
+  after-cdr
+  (restore continue)
+  (restore x)
+  (assign x (op car) (reg x))
+  (assign val (op cons) (reg x) (reg val))
+  (goto (reg continue))
+  immediate-answer
+  (assign val (reg y))
+  (goto (reg continue))
+  append-done)
+
+(defmachine-3 nconc-2 (x y) (val) x
+    ((set-cdr! #'rplacd) (null? #'null) (cdr #'cdr))
+    "Destructive append."
+  (assign val (reg x))
+  last-pair-loop
+  (save val)
+  (assign val (op cdr) (reg val))
+  (test (op null?) (reg val))
+  (branch (label at-the-end))
+  (restore val)
+  (assign val (op cdr) (reg val))
+  (goto (label last-pair-loop))
+  at-the-end
+  (restore val)
+  after-last-pair
+  (perform (op set-cdr!) (reg val) (reg y)))
+
+;;; Exercise 5.22 END
+
+
+;;; Section 5.4
 
 
 ;;Local Variables:
