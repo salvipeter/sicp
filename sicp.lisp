@@ -10886,7 +10886,7 @@ This has the drawback that compilation errors are signaled at runtime."
 
 (defmachine factorial-5 (n) (continue val) val
     ((= #'=) (- #'-) (* #'*))
-    "Factorial recursively"
+    "Factorial recursively."
   (assign continue (label fact-done))   ; set up final return address
   fact-loop
   (test (op =) (reg n) (const 1))
@@ -11666,6 +11666,431 @@ Return values:
 
 
 ;;; Section 5.2.4
+
+(defun make-new-machine-3 ()
+  "New op: PRINT-STACK-STATISTICS, and other statistics by Exercises 5.15-19.
+Some function calls are updated to the versions in the exercises."
+  (let ((pc (make-register-2 'pc))
+        (flag (make-register-2 'flag))
+        (stack (make-stack-3))
+;;; Exercise 5.15 START
+
+        ;; See also below.
+        (inst-count 0)
+
+;;; Exercise 5.15 END
+;;; Exercise 5.16 START
+
+        ;; See also below.
+        (inst-tracing nil)
+
+;;; Exercise 5.16 END
+;;; Exercise 5.19 START
+
+        ;; See also below
+        (breakpoints '())
+
+;;; Exercise 5.19 END
+        (the-instruction-sequence '()))
+    (let ((the-ops
+           (list (list 'initialize-stack
+                       (lambda () (funcall stack 'initialize)))
+;;; Exercise 5.15 START
+
+                 ;; See also above/below.
+                 (list 'print-inst-statistics
+                       (lambda () (format t "# of instructions: ~a~%" inst-count)))
+                 (list 'reset-inst-statistics
+                       (lambda () (setf inst-count 0)))
+
+;;; Exercise 5.15 END
+;;; Exercise 5.16 START
+
+                 ;; See also above/below.
+                 (list 'trace-on
+                       (lambda () (setf inst-tracing t)))
+                 (list 'trace-off
+                       (lambda () (setf inst-tracing nil)))
+
+;;; Exercise 5.16 END
+                 (list 'print-stack-statistics
+                       (lambda () (funcall stack 'print-statistics)))))
+          (register-table
+           (list (list 'pc pc) (list 'flag flag))))
+      (labels ((allocate-register (name)
+                 (if (assoc name register-table)
+                     (error "Multiply defined register: ~a" name)
+                     (setf register-table
+                           (cons (list name (make-register-2 name))
+                                 register-table)))
+                 'register-allocated)
+               (lookup-register (name)
+                 (let ((val (assoc name register-table)))
+                   (if val
+                       (cadr val)
+                       (error "Unknown register: ~a" name))))
+               (execute ()
+                 (let ((insts (get-contents pc)))
+                   (if (null insts)
+                       'done
+                       (progn
+;;; Exercise 5.19 START
+
+                         ;; See also above/below.
+                         (let ((breakp nil))
+                           (dolist (bp breakpoints)
+                             (let ((countdown (first bp)))
+                               (cond ((null countdown)
+                                      (let ((l (instruction-label (car insts))))
+                                        (when (eq l (second bp))
+                                          (setf (first bp) (third bp))
+                                          (when (= (first bp) 1)
+                                            (setf breakp t)))))
+                                     ((= countdown 2)
+                                      (setf breakp t)
+                                      (setf (first bp) nil))
+                                     (t (decf (first bp))))))
+                           (when breakp
+                             (return-from execute)))
+
+;;; Exercise 5.19 END
+                         (funcall (instruction-execution-proc-2 (car insts)))
+;;; Exercise 5.15 START
+
+                         ;; See also above.
+                         (incf inst-count)
+
+;;; Exercise 5.15 END
+;;; Exercise 5.17 START
+
+                         ;; See also below.
+                         (when (and inst-tracing
+                                    (instruction-label (car insts)))
+                           (format t "[~a]~%"
+                                   (instruction-label (car insts))))
+
+;;; Exercise 5.17 END
+;;; Exercise 5.16 START
+
+                         ;; See also above.
+                         (when inst-tracing
+                           (format t "executing: ~a~%"
+                                   (instruction-text (car insts))))
+
+;;; Exercise 5.16 END
+                         (execute)))))
+               (dispatch (message)
+                 (cond ((eq message 'start)
+                        (set-contents pc the-instruction-sequence)
+                        (execute))
+;;; Exercise 5.19 START
+
+                       ;; See also above/below.
+                       ((eq message 'proceed)
+                        (execute))
+                       ((eq message 'get-breakpoints)
+                        breakpoints)
+                       ((eq message 'set-breakpoints)
+                        (lambda (bps) (setf breakpoints bps)))
+
+;;; Exercise 5.19 END
+                       ((eq message 'install-instruction-sequence)
+                        (lambda (seq) (setf the-instruction-sequence seq)))
+                       ((eq message 'allocate-register) #'allocate-register)
+                       ((eq message 'get-register) #'lookup-register)
+                       ((eq message 'install-operations)
+                        (lambda (ops) (setf the-ops (append the-ops ops))))
+                       ((eq message 'stack) stack)
+                       ((eq message 'operations) the-ops)
+                       (t (error "Unknown request: ~a -- MACHINE" message)))))
+        #'dispatch))))
+
+(defun make-stack-3 ()
+  "New op: PRINT-STATISTICS."
+  (let ((s '())
+        (number-pushes 0)
+        (max-depth 0)
+        (current-depth 0))
+    (labels ((push-1 (x)
+               (push x s)
+               (incf number-pushes)
+               (incf current-depth)
+               (setf max-depth (max current-depth max-depth)))
+             (pop-1 ()
+               (cond ((null s) (error "Empty stack -- POP"))
+                     (t (decf current-depth)
+                        (pop s))))
+             (initialize ()
+               (setf s '())
+               (setf number-pushes 0)
+               (setf max-depth 0)
+               (setf current-depth 0)
+               'done)
+             (print-statistics ()
+               (print (list 'total-pushes '= number-pushes
+                            'maximum-depth '= max-depth)))
+             (dispatch (message)
+               (cond ((eq message 'push) #'push-1)
+                     ((eq message 'pop) (pop-1))
+                     ((eq message 'initialize) (initialize))
+                     ((eq message 'print-statistics) (print-statistics))
+                     (t (error "Unknown request: ~a -- STACK" message)))))
+      #'dispatch)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Some code duplication from above, ;;;
+;;; to make MAKE-NEW-MACHINE-3 work.  ;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defun make-machine-3 (register-names ops controller-text)
+  "Uses MAKE-NEW-MACHINE-3."
+  (let ((machine (make-new-machine-3)))
+    (mapc (lambda (register-name)
+            (funcall (funcall machine 'allocate-register) register-name))
+          register-names)
+    (funcall (funcall machine 'install-operations) ops)
+    (funcall (funcall machine 'install-instruction-sequence)
+             (assemble-2 controller-text machine))
+    machine))
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defmacro defmachine-3 (name vars tmpvars output funs doc &body body)
+    "Uses MAKE-MACHINE-3."
+    (let ((machine (gensym "MACHINE"))
+          (fns (mapcar (lambda (f)
+                         `(list ',(first f) ,(second f)))
+                       funs)))
+      `(defun ,name ,vars
+         ,doc
+         (let ((,machine (make-machine-3 ',(append vars tmpvars) (list ,@fns) ',body)))
+           (mapc (lambda (var val)
+                   (set-register-contents ,machine var val))
+                 ',vars (list ,@vars))
+           (start ,machine)
+           (get-register-contents ,machine ',output))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Code duplication ends. ;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;; Exercise 5.14 START
+
+(defmachine-3 factorial-6 (n) (continue val) val
+    ((= #'=) (- #'-) (* #'*))
+    "With statistics printed."
+  (assign continue (label fact-done))
+  fact-loop
+  (test (op =) (reg n) (const 1))
+  (branch (label base-case))
+  (save continue)
+  (save n)
+  (assign n (op -) (reg n) (const 1))
+  (assign continue (label after-fact))
+  (goto (label fact-loop))
+  after-fact
+  (restore n)
+  (restore continue)
+  (assign val (op *) (reg n) (reg val))
+  (goto (reg continue))
+  base-case
+  (assign val (const 1))
+  (goto (reg continue))
+  fact-done
+  (perform (op print-stack-statistics)))
+
+#+nil
+(dotimes (n 10)
+  (factorial-6 (1+ n)))
+
+;;; Both the total pushes and the maximum depth
+;;; seem to be (n-1) * 2.
+
+;;; Exercise 5.14 END
+
+;;; Exercise 5.17 START
+
+;;; See also above.
+;;; The idea is that we store the labels in the instruction.
+;;; For that we need to change the assembler...
+
+;;; Instruction is now a triple: (text . (label . proc))
+
+(defun make-instruction-2 (text)
+  (cons text (cons nil '())))
+
+(defun instruction-execution-proc-2 (inst)
+  (cddr inst))
+
+(defun set-instruction-execution-proc-2 (inst proc)
+  (setf (cddr inst) proc))
+
+(defun instruction-label (inst)
+  (cadr inst))
+
+(defun set-instruction-label (inst label)
+  (setf (cadr inst) label))
+
+(defun extract-labels-3 (text receive)
+  "Saves the label with the following instruction."
+  (if (null text)
+      (funcall receive '() '())
+      (extract-labels-3 (cdr text)
+                        (lambda (insts labels)
+                          (let ((next-inst (car text)))
+                            (if (symbolp next-inst)
+                                (if (member next-inst labels :key #'car)
+                                    (error "Multiply defined label: ~a" next-inst)
+                                    (progn ; save label with instruction
+                                      (when (first insts)
+                                        (set-instruction-label (first insts) next-inst))
+                                      (funcall receive insts 
+                                               (cons (make-label-entry next-inst insts)
+                                                     labels))))
+                                (funcall receive (cons (make-instruction-2 next-inst)
+                                                       insts)
+                                         labels)))))))
+
+;;; The rest is just duplication to make it work.
+
+(defun update-insts-2 (insts labels machine)
+  "Uses SET-INSTRUCTION-EXECUTION-PROC-2."
+  (let ((pc (get-register machine 'pc))
+        (flag (get-register machine 'flag))
+        (stack (funcall machine 'stack))
+        (ops (funcall machine 'operations)))
+    (mapc (lambda (inst)
+            (set-instruction-execution-proc-2
+             inst
+             (make-execution-procedure-2 (instruction-text inst)
+                                         labels machine pc flag stack ops)))
+          insts)))
+
+(defun assemble-2 (controller-text machine)
+  "Uses the new functions EXTRACT-LABELS-3 and UPDATE-INSTS-2."
+  (extract-labels-3 controller-text
+                    (lambda (insts labels)
+                      (update-insts-2 insts labels machine)
+                      insts)))
+
+;;; Exercise 5.17 END
+
+;;; Exercise 5.18 START
+
+;;; We define a new execution procedure type,
+;;; that can be used like this:
+;;; (trace REGISTER on)
+;;;   or
+;;; (trace REGISTER off)
+
+(defun make-register-2 (name)
+  "With tracing."
+  (let ((contents '*unassigned*)
+        (tracing nil))
+    (labels ((dispatch (message)
+               (cond ((eq message 'name) name)
+                     ((eq message 'trace-on) (setf tracing t))
+                     ((eq message 'trace-off) (setf tracing nil))
+                     ((eq message 'get) contents)
+                     ((eq message 'set)
+                      (lambda (value)
+                        (when tracing
+                          (format t "REG ~a: ~a => ~a~%"
+                                  name contents value))
+                        (setf contents value)))
+                     (t (error "Unknown request: ~a -- REGISTER" message)))))
+      #'dispatch)))
+
+(defun make-execution-procedure-2 (inst labels machine pc flag stack ops)
+  "New procedure type: TRACE."
+  (cond ((eq (car inst) 'assign)
+         (make-assign inst machine labels ops pc))
+        ((eq (car inst) 'test)
+         (make-test inst machine labels ops flag pc))
+        ((eq (car inst) 'branch)
+         (make-branch-1 inst machine labels flag pc))
+        ((eq (car inst) 'goto)
+         (make-goto inst machine labels pc))
+        ((eq (car inst) 'save)
+         (make-save inst machine stack pc))
+        ((eq (car inst) 'restore)
+         (make-restore inst machine stack pc))
+        ((eq (car inst) 'perform)
+         (make-perform inst machine labels ops pc))
+        ((eq (car inst) 'trace)
+         (make-trace inst machine pc))
+        (t (error "Unknown instruction type: ~a -- ASSEMBLE" inst))))
+
+(defun make-trace (inst machine pc)
+  (let ((target (get-register machine (trace-reg-name inst)))
+        (on-off (ecase (trace-on-off inst) (on 'trace-on) (off 'trace-off))))
+    (lambda ()
+      (funcall target on-off)
+      (advance-pc pc))))
+
+(defun trace-reg-name (trace-instruction)
+  (cadr trace-instruction))
+
+(defun trace-on-off (trace-instruction)
+  (caddr trace-instruction))
+
+;;; Exercise 5.18 END
+
+;;; Exercise 5.19 START
+
+;;; See also above.
+
+(defun set-breakpoint (machine label n)
+  (funcall (funcall machine 'set-breakpoints)
+           (cons (list nil label n)
+                 (funcall machine 'get-breakpoints))))
+
+(defun proceed-machine (machine)
+  (funcall machine 'proceed))
+
+(defun cancel-breakpoint (machine label n)
+  (funcall (funcall machine 'set-breakpoints)
+           (remove (list label n)
+                   (funcall machine 'get-breakpoints)
+                   :test (lambda (a b)
+                           (and (eq (second a) (second b))
+                                (= (third a) (third b)))))))
+
+(defun cancel-all-breakpoints (machine)
+  (funcall (funcall machine 'set-breakpoints) '()))
+
+;;; Test
+(defparameter *gcd-machine*
+  (make-machine-3
+   '(a b tmp) (list (list 'rem #'mod) (list '= #'=))
+   '((perform (op trace-on))
+     test-b
+     (test (op =) (reg b) (const 0))
+     (branch (label gcd-done))
+     (assign tmp (op rem) (reg a) (reg b))
+     (assign a (reg b))
+     (assign b (reg tmp))
+     (goto (label test-b))
+     gcd-done)))
+
+#+nil
+(progn
+  (set-register-contents *gcd-machine* 'a 12)
+  (set-register-contents *gcd-machine* 'b 18)
+  (set-breakpoint *gcd-machine* 'test-b 4)
+  (start *gcd-machine*)
+  (format t "At breakpoint 1.~%")
+  (set-breakpoint *gcd-machine* 'test-b 3)
+  (cancel-breakpoint *gcd-machine* 'test-b 4)
+  (proceed-machine *gcd-machine*)
+  (format t "At breakpoint 2.~%")
+  (cancel-all-breakpoints *gcd-machine*)
+  (proceed-machine *gcd-machine*)
+  (get-register-contents *gcd-machine* 'a))
+
+;;; Exercise 5.19 END
+
+
+;;; Section 5.3
 
 
 ;;Local Variables:
