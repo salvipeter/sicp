@@ -12240,7 +12240,14 @@ Some function calls are updated to the versions in the exercises."
      (assignment? #'assignmentp)
      (begin-actions #'begin-actions)
      (begin? #'beginp)
+     (car #'car)
+     (cdr #'cdr)
      (compound-procedure? #'compound-procedure-p)
+     (cond-actions #'cond-actions)
+     (cond-clauses #'cond-clauses)
+     (cond-else-clause? #'cond-else-clause-p)
+     (cond-predicate #'cond-predicate)
+     (cond? #'condp)
      (define-variable! #'define-variable)
      (definition-value #'definition-value)
      (definition-variable #'definition-variable)
@@ -12259,8 +12266,11 @@ Some function calls are updated to the versions in the exercises."
      (lambda? #'lambdap)
      (last-exp? #'last-exp-p)
      (last-operand? #'last-operand-p)
+     (let->combination #'let->combination)
+     (let? #'letp)
      (lookup-variable-value #'lookup-variable-value)
      (make-procedure #'make-procedure)
+     (no-more-exps? #'no-more-exps-p)
      (no-operands? #'no-operands-p)
      (operands #'operands)
      (operator #'operator)
@@ -12281,6 +12291,7 @@ Some function calls are updated to the versions in the exercises."
      (variable? #'variablep))
     "Scheme evaluator."
   (goto (label read-eval-print-loop)) ; see Section 5.4.4
+
   ;; Section 5.4.1 - Evaluation dispatch
   eval-dispatch
   (test (op self-evaluating?) (reg exp))
@@ -12299,6 +12310,22 @@ Some function calls are updated to the versions in the exercises."
   (branch (label ev-lambda))
   (test (op begin?) (reg exp))
   (branch (label ev-begin))
+;;; Exercise 5.23 START
+
+  ;; See also below.
+  ;; Here only LET is implemented,
+  ;; see the next exercise for COND.
+  (test (op let?) (reg exp))
+  (branch (label ev-let))
+
+;;; Exercise 5.23 END
+;;; Exercise 5.24 START
+
+  ;; See also below.
+  (test (op cond?) (reg exp))
+  (branch (label ev-cond))
+
+;;; Exercise 5.24 END
   (test (op application?) (reg exp))
   (branch (label ev-application))
   (goto (label unknown-expression-type))
@@ -12316,6 +12343,7 @@ Some function calls are updated to the versions in the exercises."
   (assign exp (op lambda-body) (reg exp))
   (assign val (op make-procedure) (reg unev) (reg exp) (reg env))
   (goto (reg continue))
+
   ;; Evaluating the function and its arguments
   ev-application
   (save continue)
@@ -12357,6 +12385,7 @@ Some function calls are updated to the versions in the exercises."
   (assign argl (op adjoin-arg) (reg val) (reg argl))
   (restore proc)
   (goto (label apply-dispatch))
+
   ;; Application
   apply-dispatch
   (test (op primitive-procedure?) (reg proc))
@@ -12374,11 +12403,13 @@ Some function calls are updated to the versions in the exercises."
   (assign env (op extend-environment) (reg unev) (reg argl) (reg env))
   (assign unev (op procedure-body) (reg proc))
   (goto (label ev-sequence))
+
   ;; Section 5.4.2 - Sequence evaluation
   ev-begin
   (assign unev (op begin-actions) (reg exp))
   (save continue)
   (goto (label ev-sequence))
+  ;; Optimized for tail-recursion
   ev-sequence
   (assign exp (op first-exp) (reg unev))
   (test (op last-exp?) (reg unev))
@@ -12395,6 +12426,24 @@ Some function calls are updated to the versions in the exercises."
   ev-sequence-last-exp
   (restore continue)
   (goto (label eval-dispatch))
+  ;; Not optimized for tail-recursion
+  ;; ev-sequence
+  ;; (test (op no-more-exps?) (reg unev))
+  ;; (branch (label ev-sequence-end))
+  ;; (assign exp (op first-exp) (reg unev))
+  ;; (save unev)
+  ;; (save env)
+  ;; (assign continue (label ev-sequence-continue))
+  ;; (goto (label eval-dispatch))
+  ;; ev-sequence-continue
+  ;; (restore env)
+  ;; (restore unev)
+  ;; (assign unev (op rest-exps) (reg unev))
+  ;; (goto (label ev-sequence))
+  ;; ev-sequence-end
+  ;; (restore continue)
+  ;; (goto (reg continue))
+
   ;; Section 5.4.3 - Conditionals
   ev-if
   (save exp)                            ; save expression for later
@@ -12415,6 +12464,7 @@ Some function calls are updated to the versions in the exercises."
   ev-if-consequent
   (assign exp (op if-consequent) (reg exp))
   (goto (label eval-dispatch))
+
   ;; Assignments and definitions
   ev-assignment
   (assign unev (op assignment-variable) (reg exp))
@@ -12446,6 +12496,47 @@ Some function calls are updated to the versions in the exercises."
   (perform (op define-variable!) (reg unev) (reg val) (reg env))
   (assign val (const ok))
   (goto (reg continue))
+;;; Exercise 5.23 START
+
+  ;; See also above.
+  ev-let
+  (assign exp (op let->combination) (reg exp))
+  (goto (label eval-dispatch))
+
+;;; Exercise 5.23 END
+;;; Exercise 5.24 START
+
+  ;; See also above.
+  ev-cond
+  (assign unev (op cond-clauses) (reg exp))
+  (save unev)                                ; stack/unev: all conditions
+  ev-cond-loop
+  (assign exp (op car) (reg unev))           ; exp <- first condition
+  (save exp)                                 ; stack: first cond, all conds
+  (test (op cond-else-clause?) (reg exp))
+  (branch (label ev-cond-found))
+  (assign exp (op cond-predicate) (reg exp)) ; exp <- first predicate
+  (save continue)
+  (assign continue (label ev-cond-test))
+  (goto (label eval-dispatch))
+  ev-cond-test
+  (restore continue)
+  (test (op true?) (reg val))
+  (branch (label ev-cond-found))
+  (restore exp)
+  (restore unev)
+  (assign unev (op cdr) (reg unev))
+  (save unev)
+  (goto (label ev-cond-loop))
+  ev-cond-found                              ; stack: first cond, all conds
+  (restore exp)
+  (restore unev)
+  (assign unev (op cond-actions) (reg exp))
+  (save continue)
+  (goto (label ev-sequence))
+
+;;; Exercise 5.24 END
+
   ;; Section 5.4.4 - REPL
   read-eval-print-loop
   (perform (op initialize-stack))
@@ -12455,9 +12546,12 @@ Some function calls are updated to the versions in the exercises."
   (assign continue (label print-result))
   (goto (label eval-dispatch))
   print-result
+  (perform (op print-stack-statistics)) ; <- added for monitoring performance
   (perform (op announce-output) (const ";;; EC-Eval value:"))
   (perform (op user-print) (reg val))
   (goto (label read-eval-print-loop))
+
+  ;; Error handling
   unknown-expression-type
   (assign val (const unknown-expression-type-error))
   (goto (label signal-error))
@@ -12478,26 +12572,129 @@ Some function calls are updated to the versions in the exercises."
 (defun last-operand-p (ops)
   (null (cdr ops)))
 
+(defun no-more-exps-p (seq)
+  (null seq))
+
 (defun get-global-environment ()
   *the-global-environment*)
 
-;;; Exercise 5.23 START
-
-
-
-;;; Exercise 5.23 END
-
-;;; Exercise 5.24 START
-
-
-
-;;; Exercise 5.24 END
-
 ;;; Exercise 5.25 START
 
+;;; TODO
+;; Modify the evaluator so that it uses normal-order evaluation,
+;; based on the lazy evaluator of Section 4.2.
 
+;;; This would need introducing delay/force thunks,
+;;; which would be a more extensive change... maybe later.
 
 ;;; Exercise 5.25 END
+
+;;; Exercise 5.26 START
+
+;; |--------+-----+-----+-----+-----+-----+-----|
+;; | n      |   5 |   6 |   7 |   8 |   9 |  10 |
+;; |--------+-----+-----+-----+-----+-----+-----|
+;; | pushes | 204 | 239 | 274 | 309 | 344 | 379 |
+;; |--------+-----+-----+-----+-----+-----+-----|
+;; | depth  |  10 |  10 |  10 |  10 |  10 |  10 |
+;; |--------+-----+-----+-----+-----+-----+-----|
+
+;;; So pushes = 35n+29, depth = 10.
+
+;;; Exercise 5.26 END
+
+;;; Exercise 5.27 START
+
+;;; See also the previous exercise.
+;; |--------+-----+-----+-----+-----+-----+-----|
+;; | n      |   5 |   6 |   7 |   8 |   9 |  10 |
+;; |--------+-----+-----+-----+-----+-----+-----|
+;; | pushes | 144 | 176 | 208 | 240 | 272 | 304 |
+;; |--------+-----+-----+-----+-----+-----+-----|
+;; | depth  |  28 |  33 |  38 |  43 |  48 |  53 |
+;; |--------+-----+-----+-----+-----+-----+-----|
+
+;;; So pushes = 32n-16, depth = 5n+3.
+
+;;; Exercise 5.27 END
+
+;;; Exercise 5.28 START
+
+;; |------------+-----+-----+-----+-----+-----+-----|
+;; | n          |   5 |   6 |   7 |   8 |   9 |  10 |
+;; |------------+-----+-----+-----+-----+-----+-----|
+;; | pushes-it  | 218 | 255 | 292 | 329 | 366 | 403 |
+;; |------------+-----+-----+-----+-----+-----+-----|
+;; | depth-it   |  29 |  32 |  35 |  38 |  41 |  44 |
+;; |------------+-----+-----+-----+-----+-----+-----|
+;; | pushes-rec | 154 | 188 | 222 | 256 | 290 | 324 |
+;; |------------+-----+-----+-----+-----+-----+-----|
+;; | depth-rec  |  43 |  51 |  59 |  67 |  75 |  83 |
+;; |------------+-----+-----+-----+-----+-----+-----|
+
+;;; pushes-it  = 37n+33, depth-it = 3n+14.
+;;; pushes-rec = 34n-16, depth-it = 8n+3.
+
+;;; Exercise 5.28 END
+
+;;; Exercise 5.29 START
+
+;; |----------+----+-----+-----+-----+-----+------+------+------+------|
+;; | n        |  2 |   3 |   4 |   5 |   6 |    7 |    8 |    9 |   10 |
+;; |----------+----+-----+-----+-----+-----+------+------+------+------|
+;; | pushes   | 72 | 128 | 240 | 408 | 688 | 1136 | 1864 | 3040 | 4944 |
+;; |----------+----+-----+-----+-----+-----+------+------+------+------|
+;; | depth    | 13 |  18 |  23 |  28 |  33 |   38 |   43 |   48 |   53 |
+;; |----------+----+-----+-----+-----+-----+------+------+------+------|
+
+;;; So depth = 5n+3.
+
+;;; S(n) = S(n-1) + S(n-2) + 40, where S(0) = S(1) = 16.
+
+;;; Also S(n) = 56 * Fib(n+1) - 40.
+
+;;; Exercise 5.29 END
+
+;;; Exercise 5.30 START
+
+;;; TODO
+;; Our evaluator currently catches and signals only two kinds of
+;; errors--unknown expression types and unknown procedure types.
+;; Other errors will take us out of the evaluator read-eval-print
+;; loop.  When we run the evaluator using the register-machine
+;; simulator, these errors are caught by the underlying Scheme system.
+;; This is analogous to the computer crashing when a user program
+;; makes an error. It is a large project to make a real error system
+;; work, but it is well worth the effort to understand what is
+;; involved here.
+;; a. Errors that occur in the evaluation process, such as an attempt
+;;    to access an unbound variable, could be caught by changing the
+;;    lookup operation to make it return a distinguished condition
+;;    code, which cannot be a possible value of any user variable.
+;;    The evaluator can test for this condition code and then do what
+;;    is necessary to go to `signal-error'.  Find all of the places in
+;;    the evaluator where such a change is necessary and fix them.
+;;    This is lots of work.
+;; b. Much worse is the problem of handling errors that are signaled
+;;    by applying primitive procedures, such as an attempt to divide
+;;    by zero or an attempt to extract the `car' of a symbol.  In a
+;;    professionally written high-quality system, each primitive
+;;    application is checked for safety as part of the primitive.  For
+;;    example, every call to `car' could first check that the argument
+;;    is a pair.  If the argument is not a pair, the application would
+;;    return a distinguished condition code to the evaluator, which
+;;    would then report the failure.  We could arrange for this in our
+;;    register-machine simulator by making each primitive procedure
+;;    check for applicability and returning an appropriate
+;;    distinguished condition code on failure. Then the
+;;    `primitive-apply' code in the evaluator can check for the
+;;    condition code and go to `signal-error' if necessary.  Build
+;;    this structure and make it work.  This is a major project.
+
+;;; Exercise 5.30 END
+
+
+;;; Section 5.5
 
 
 ;;Local Variables:
