@@ -12285,6 +12285,7 @@ Some function calls are updated to the versions in the exercises."
      (rest-operands #'rest-operands)
      (self-evaluating? #'self-evaluating-p)
      (set-variable-value! #'set-variable-value)
+     (symbol? #'symbolp)
      (text-of-quotation #'text-of-quotation)
      (true? #'truep)
      (user-print #'user-print)
@@ -12347,15 +12348,36 @@ Some function calls are updated to the versions in the exercises."
   ;; Evaluating the function and its arguments
   ev-application
   (save continue)
-  (save env)
   (assign unev (op operands) (reg exp))
-  (save unev)
   (assign exp (op operator) (reg exp))
+;;; Exercise 5.32 START
+
+  ;; See also below.
+  (test (op symbol?) (reg exp))
+  (branch (label ev-appl-operator-symbol))
+
+;;; Exercise 5.32 END
+  (save env)                            ; brought down because
+  (save unev)                           ; of Exercise 5.32
   (assign continue (label ev-appl-did-operator))
   (goto (label eval-dispatch))
+;;; Exercise 5.32 START
+
+  ;; See also above/below.
+  ev-appl-operator-symbol
+  (assign continue (label ev-appl-after-restore))
+  (goto (label eval-dispatch))
+
+;;; Exercise 5.32 END
   ev-appl-did-operator
   (restore unev)                        ; the operands
   (restore env)
+;;; Exercise 5.32 START
+
+  ;; See also above/below.
+  ev-appl-after-restore
+
+;;; Exercise 5.32 END
   (assign argl (op empty-arglist))
   (assign proc (reg val))               ; the operator
   (test (op no-operands?) (reg unev))
@@ -12715,14 +12737,56 @@ Some function calls are updated to the versions in the exercises."
 (defun empty-instruction-sequence ()
   (make-instruction-sequence '() '() '()))
 
+;;; Exercise 5.31 START
+
+;;; Order of evaluation: [1] operator [2] operands (right to left)
+
+;;; ENV should be saved before a function call,
+;;;   if we need to look up a variable/function later
+;;;     (so not needed for the first operand, which is processed last)
+;;; ARGL should always be saved before a(n operand) function call
+;;;   (except for the last operand, which is processed first)
+;;; PROC should always be saved before a(n operand) function call
+
+;;; 1. (f 'x 'y)
+;;; no saves necessary
+;;; <- no function calls
+;;; 2. ((f) 'x 'y)
+;;; no saves necessary
+;;; <- there is a function call in the operator position,
+;;;    but we don't need the environment later
+;;; 3. (f (g 'x) y)
+;;; need to save ARGL and PROC around (g 'x)
+;;; <- no need to save ENV, because we won't need it later
+;;; 4. (f (g 'x) 'y)
+;;; need to save ARGL and PROC around (g 'x)
+;;; <- it doesn't matter that we have 'y here;
+;;;    it would, if operands were evaluated from left to right
+
+;;; Exercise 5.31 END
+
+;;; Exercise 5.32 START
+
+;;; (a) See above.
+;;; (b) to achieve the same efficiency, it would have to recognize all possible programs,
+;;;     which is obviously unfeasible...
+;;;     otherwise it would still need to parse the same code a number of times
+
+;;; Exercise 5.32 END
+
 
 ;;; Section 5.5.2
 
 (defun compile-linkage (linkage)
   (cond ((eq linkage 'return)
-         (make-instruction-sequence '(continue) '() '((goto (reg continue)))))
-        ((eq linkage 'next) (empty-instruction-sequence))
-        (t (make-instruction-sequence '() '() `((goto (label ,linkage)))))))
+         (make-instruction-sequence
+          '(continue) '()
+          '((goto (reg continue)))))
+        ((eq linkage 'next)
+         (empty-instruction-sequence))
+        (t (make-instruction-sequence
+            '() '()
+            `((goto (label ,linkage)))))))
 
 (defun end-with-linkage (linkage instruction-sequence)
   (preserving '(continue) instruction-sequence (compile-linkage linkage)))
@@ -12781,8 +12845,7 @@ Some function calls are updated to the versions in the exercises."
   (let ((t-branch (make-label 'true-branch))
         (f-branch (make-label 'false-branch))
         (after-if (make-label 'after-if)))
-    (let ((consequent-linkage
-           (if (eq linkage 'next) after-if linkage)))
+    (let ((consequent-linkage (if (eq linkage 'next) after-if linkage)))
       (let ((p-code (compile% (if-predicate exp) 'val 'next))
             (c-code (compile% (if-consequent exp) target consequent-linkage))
             (a-code (compile% (if-alternative exp) target linkage)))
@@ -12790,7 +12853,8 @@ Some function calls are updated to the versions in the exercises."
                     (append-instruction-sequences
                      (make-instruction-sequence
                       '(val) '()
-                      `((test (op false?) (reg val)) (branch (label ,f-branch))))
+                      `((test (op false?) (reg val))
+                        (branch (label ,f-branch))))
                      (parallel-instruction-sequences
                       (append-instruction-sequences t-branch c-code)
                       (append-instruction-sequences f-branch a-code))
@@ -12802,6 +12866,18 @@ Some function calls are updated to the versions in the exercises."
       (preserving '(env continue)
                   (compile% (first-exp seq) target 'next)
                   (compile-sequence (rest-exps seq) target linkage))))
+
+(defun make-compiled-procedure (entry env)
+  (list 'compiled-procedure entry env))
+
+(defun compiled-procedure-p (proc)
+  (tagged-list-p proc 'compiled-procedure))
+
+(defun compiled-procedure-entry (c-proc)
+  (cadr proc))
+
+(defun compiled-procedure-env (c-proc)
+  (caddr c-proc))
 
 (defun compile-lambda (exp target linkage)
   (let ((proc-entry (make-label 'entry))
@@ -12841,7 +12917,9 @@ Some function calls are updated to the versions in the exercises."
 (defun construct-arglist (operand-codes)
   (let ((operand-codes (reverse operand-codes)))
     (if (null operand-codes)
-        (make-instruction-sequence '() '(argl) '((assign argl (const ()))))
+        (make-instruction-sequence
+         '() '(argl)
+         '((assign argl (const ()))))
         (let ((code-to-get-last-arg
                (append-instruction-sequences
                 (car operand-codes)
@@ -12872,7 +12950,8 @@ Some function calls are updated to the versions in the exercises."
       (append-instruction-sequences
        (make-instruction-sequence
         '(proc) '()
-        `((test (op primitive-procedure?) (reg proc)) (branch (label ,primitive-branch))))
+        `((test (op primitive-procedure?) (reg proc))
+          (branch (label ,primitive-branch))))
        (parallel-instruction-sequences
         (append-instruction-sequences
          compiled-branch
@@ -12943,8 +13022,7 @@ Some function calls are updated to the versions in the exercises."
            (append-seq-list (seqs)
              (if (null seqs)
                  (empty-instruction-sequence)
-                 (append-2-sequences (car seqs)
-                                     (append-seq-list (cdr seqs))))))
+                 (append-2-sequences (car seqs) (append-seq-list (cdr seqs))))))
     (append-seq-list seqs)))
 
 (defun list-union (s1 s2)
