@@ -12697,16 +12697,14 @@ Some function calls are updated to the versions in the exercises."
 ;;; Section 5.5.1
 
 (defun compile% (exp target linkage)
-  (cond ((self-evaluating-p exp)
-         (compile-self-evaluating exp target linkage))
+  (cond ((self-evaluating-p exp) (compile-self-evaluating exp target linkage))
         ((quotedp exp) (compile-quoted exp target linkage))
         ((variablep exp) (compile-variable exp target linkage))
         ((assignmentp exp) (compile-assignment exp target linkage))
         ((definitionp exp) (compile-definition exp target linkage))
         ((ifp exp) (compile-if exp target linkage))
         ((lambdap exp) (compile-lambda exp target linkage))
-        ((beginp exp)
-         (compile-sequence (begin-actions exp) target linkage))
+        ((beginp exp) (compile-sequence (begin-actions exp) target linkage))
         ((condp exp) (compile% (cond->if exp) target linkage))
         ((applicationp exp) (compile-application exp target linkage))
         (t (error "Unknown expression type: ~a -- COMPILE%" exp))))
@@ -12714,7 +12712,7 @@ Some function calls are updated to the versions in the exercises."
 (defun make-instruction-sequence (needs modifies statements)
   (list needs modifies statements))
 
-(defparameter +empty-instruction-sequence+
+(defun empty-instruction-sequence ()
   (make-instruction-sequence '() '() '()))
 
 
@@ -12723,7 +12721,7 @@ Some function calls are updated to the versions in the exercises."
 (defun compile-linkage (linkage)
   (cond ((eq linkage 'return)
          (make-instruction-sequence '(continue) '() '((goto (reg continue)))))
-        ((eq linkage 'next) (funcall +empty-instruction-sequence+))
+        ((eq linkage 'next) (empty-instruction-sequence))
         (t (make-instruction-sequence '() '() `((goto (label ,linkage)))))))
 
 (defun end-with-linkage (linkage instruction-sequence)
@@ -12944,7 +12942,7 @@ Some function calls are updated to the versions in the exercises."
               (append (statements seq1) (statements seq2))))
            (append-seq-list (seqs)
              (if (null seqs)
-                 (funcall +empty-instruction-sequence+)
+                 (empty-instruction-sequence)
                  (append-2-sequences (car seqs)
                                      (append-seq-list (cdr seqs))))))
     (append-seq-list seqs)))
@@ -12991,10 +12989,10 @@ Some function calls are updated to the versions in the exercises."
 
 #+nil
 (compile%
- '(define (factorial (n)
+ '(define (factorial n)
     (if (= n 1)
         1
-        (* (factorial (- n 1)) n))))
+        (* (factorial (- n 1)) n)))
  'val 'next)
 
 
