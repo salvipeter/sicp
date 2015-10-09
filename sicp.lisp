@@ -12874,7 +12874,7 @@ Some function calls are updated to the versions in the exercises."
   (tagged-list-p proc 'compiled-procedure))
 
 (defun compiled-procedure-entry (c-proc)
-  (cadr proc))
+  (cadr c-proc))
 
 (defun compiled-procedure-env (c-proc)
   (caddr c-proc))
@@ -13394,9 +13394,96 @@ Does not reverse OPERAND-CODES, but compiles a REVERSE operation."
 
 ;;; Exercise 5.38 START
 
+(defun spread-arguments (args)
+  (ecase (length args)
+    (0 (empty-instruction-sequence))
+    (1 (compile-1 (first args) 'arg1 'next))
+    (2 (preserving '(env) (compile-1 (first args) 'arg1 'next)
+                   (preserving '(arg1) (compile-1 (second args) 'arg2 'next)
+                               (make-instruction-sequence '(arg1) '() '()))))))
 
+(defun compile-1 (exp target linkage)
+  "Supports open-coded primitives."
+  (cond ((self-evaluating-p exp) (compile-self-evaluating exp target linkage))
+        ((quotedp exp) (compile-quoted exp target linkage))
+        ((variablep exp) (compile-variable exp target linkage))
+        ((assignmentp exp) (compile-assignment exp target linkage))
+        ((definitionp exp) (compile-definition exp target linkage))
+        ((ifp exp) (compile-if exp target linkage))
+        ((lambdap exp) (compile-lambda exp target linkage))
+        ((beginp exp) (compile-sequence (begin-actions exp) target linkage))
+        ((condp exp) (compile% (cond->if exp) target linkage))
+        ((open-coded-p exp) (compile-open-coded exp target linkage))
+        ((applicationp exp) (compile-application exp target linkage))
+        (t (error "Unknown expression type: ~a -- COMPILE%" exp))))
+
+(defun open-coded-p (exp)
+  (member (car exp) '(= * - +)))
+
+(defun open-coded-operator (exp)
+  (car exp))
+
+(defun open-coded-operands (exp)
+  (cdr exp))
+
+(defun compile-open-coded (exp target linkage)
+  (let* ((op (open-coded-operator exp))
+         (args (open-coded-operands exp)))
+    (if (<= (length args) 2)
+        (append-instruction-sequences
+         (spread-arguments args)
+         (end-with-linkage
+          linkage
+          (make-instruction-sequence
+           '(arg1 arg2) (list target)
+           `((assign ,target (op ,op) ,@(case (length args)
+                                              (0 '())
+                                              (1 '((reg arg1)))
+                                              (2 '((reg arg1) (reg arg2)))))))))
+        (if (eq op '-)                  ; we want (- 7 3 1) = 3 [not 5]
+            (compile-1 `(,op (,op ,@(butlast args)) . ,(last args)) target linkage)
+            (compile-1 `(,op ,(first args) (,op ,@(rest args))) target linkage)))))
+
+;;; Actually the handling of - is more efficient,
+;;; because it does not have to save/restore ARG1 all the time.
+
+;;; Comparison of FACTORIAL:
+;;; # of instructions (not counting labels) reduced to 50% (62 -> 31)
+
+;;; Example: the part with multiplication
+
+;;; Old code:
+;; (ASSIGN PROC (OP LOOKUP-VARIABLE-VALUE) (CONST *) (REG ENV))
+;; (SAVE CONTINUE)
+;; (SAVE PROC)
+;; (ASSIGN VAL (OP LOOKUP-VARIABLE-VALUE) (CONST N) (REG ENV))
+;; (ASSIGN ARGL (OP LIST) (REG VAL))
+;; (SAVE ARGL)
+;; <compiled code for recursive call, result in VAL>
+;; (RESTORE ARGL)
+;; (ASSIGN ARGL (OP CONS) (REG VAL) (REG ARGL))
+;; (RESTORE PROC)
+;; (RESTORE CONTINUE)
+;; (TEST (OP PRIMITIVE-PROCEDURE?) (REG PROC))
+;; (BRANCH (LABEL PRIMITIVE-BRANCH15))
+;; COMPILED-BRANCH16
+;; (ASSIGN VAL (OP COMPILED-PROCEDURE-ENTRY) (REG PROC))
+;; (GOTO (REG VAL))
+;; PRIMITIVE-BRANCH15
+;; (ASSIGN VAL (OP APPLY-PRIMITIVE-PROCEDURE) (REG PROC) (REG ARGL))
+;; (GOTO (REG CONTINUE))
+;; AFTER-CALL17
+
+;;; New code:
+;; <compiled code for recursive call, result in ARG1>
+;; (ASSIGN ARG2 (OP LOOKUP-VARIABLE-VALUE) (CONST N) (REG ENV))
+;; (ASSIGN VAL (OP *) (REG ARG1) (REG ARG2))
+;; (GOTO (REG CONTINUE))
 
 ;;; Exercise 5.38 END
+
+
+;;; Section 5.5.6
 
 #+nil
 (compile%
