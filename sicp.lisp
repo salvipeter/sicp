@@ -13065,6 +13065,339 @@ Some function calls are updated to the versions in the exercises."
 
 ;;; Section 5.5.5
 
+;;; Exercise 5.33 START
+
+;;; In the false branch:
+
+;;; [first]
+;; FALSE-BRANCH4
+;; (ASSIGN PROC (OP LOOKUP-VARIABLE-VALUE) (CONST *) (REG ENV))
+;; (SAVE CONTINUE)
+;; (SAVE PROC)
+;; (SAVE ENV)
+;; (ASSIGN PROC (OP LOOKUP-VARIABLE-VALUE) (CONST FACTORIAL) (REG ENV))
+;; ...
+;;; [second]
+;; FALSE-BRANCH4
+;; (ASSIGN PROC (OP LOOKUP-VARIABLE-VALUE) (CONST *) (REG ENV))
+;; (SAVE CONTINUE)
+;; (SAVE PROC)
+;; (ASSIGN VAL (OP LOOKUP-VARIABLE-VALUE) (CONST N) (REG ENV))
+;; (ASSIGN ARGL (OP LIST) (REG VAL))
+;; (SAVE ARGL)
+;; (ASSIGN PROC (OP LOOKUP-VARIABLE-VALUE) (CONST FACTORIAL) (REG ENV))
+;; ...
+
+;;; In the second version it looks up N first, so ENV doesn't have to be saved.
+;;; But ARGL has to be saved before calling FACTORIAL recursively.
+
+;;; After the call:
+
+;;; [first]
+;; AFTER-CALL14
+;; (ASSIGN ARGL (OP LIST) (REG VAL))
+;; (RESTORE ENV)
+;; (ASSIGN VAL (OP LOOKUP-VARIABLE-VALUE) (CONST N) (REG ENV))
+;; (ASSIGN ARGL (OP CONS) (REG VAL) (REG ARGL))
+;; ...
+;;; [second]
+;; AFTER-CALL14
+;; (RESTORE ARGL)
+;; (ASSIGN ARGL (OP CONS) (REG VAL) (REG ARGL))
+;; ...
+
+;;; The total number of saves/restores and assignments is the same,
+;;; so their efficiency is the same.
+
+;;; Exercise 5.33 END
+
+;;; Exercise 5.34 START
+
+;;; The define framework is the same:
+
+;; (ASSIGN VAL (OP MAKE-COMPILED-PROCEDURE) (LABEL ENTRY1) (REG ENV))
+;; (GOTO (LABEL AFTER-LAMBDA2))
+;; ENTRY1
+;; <code for FACTORIAL>
+;; AFTER-LAMBDA2
+;; (PERFORM (OP DEFINE-VARIABLE!) (CONST FACTORIAL) (REG VAL) (REG ENV))
+;; (ASSIGN VAL (CONST OK))
+
+;;; The lambda function starts with environment extension:
+
+;; (ASSIGN ENV (OP COMPILED-PROCEDURE-ENV) (REG PROC))
+;; (ASSIGN ENV (OP EXTEND-ENVIRONMENT) (CONST (N)) (REG ARGL) (REG ENV))
+;; <code for FACTORIAL body>
+
+;;; Inside FACTORIAL we have another define with the same structure:
+
+;; (ASSIGN VAL (OP MAKE-COMPILED-PROCEDURE) (LABEL ENTRY3) (REG ENV))
+;; (GOTO (LABEL AFTER-LAMBDA4))
+;; ENTRY3
+;; (ASSIGN ENV (OP COMPILED-PROCEDURE-ENV) (REG PROC))
+;; (ASSIGN ENV (OP EXTEND-ENVIRONMENT) (CONST (PRODUCT COUNTER)) (REG ARGL) (REG ENV))
+;; <code for ITER body>
+;; AFTER-LAMBDA4
+;; (PERFORM (OP DEFINE-VARIABLE!) (CONST ITER) (REG VAL) (REG ENV))
+;; (ASSIGN VAL (CONST OK))
+
+;;; After the definition of ITER, it looks up its lambda function,
+;;; and decides if it is primitive or compiled.
+
+;; (ASSIGN PROC (OP LOOKUP-VARIABLE-VALUE) (CONST ITER) (REG ENV))
+;; (ASSIGN VAL (CONST 1))
+;; (ASSIGN ARGL (OP LIST) (REG VAL))
+;; (ASSIGN VAL (CONST 1))
+;; (ASSIGN ARGL (OP CONS) (REG VAL) (REG ARGL))
+;; (TEST (OP PRIMITIVE-PROCEDURE?) (REG PROC))
+;; (BRANCH (LABEL PRIMITIVE-BRANCH20))
+;; COMPILED-BRANCH21
+;; (ASSIGN VAL (OP COMPILED-PROCEDURE-ENTRY) (REG PROC))
+;; (GOTO (REG VAL))
+;; PRIMITIVE-BRANCH20
+;; (ASSIGN VAL (OP APPLY-PRIMITIVE-PROCEDURE) (REG PROC) (REG ARGL))
+;; (GOTO (REG CONTINUE))
+;; AFTER-CALL22
+
+;;; The only part left is the body of ITER.
+;;; Here we see an IF construction:
+
+;; (SAVE CONTINUE)
+;; (SAVE ENV)
+;; <compilation of the predicate>
+;; (RESTORE ENV)
+;; (RESTORE CONTINUE)
+;; (TEST (OP FALSE?) (REG VAL))
+;; (BRANCH (LABEL FALSE-BRANCH6))
+;; TRUE-BRANCH5
+;; <compilation of the true branch>
+;; FALSE-BRANCH6
+;; <compilation of the false branch>
+;; AFTER-IF7
+
+;;; The predicate is pretty straightforward.
+;;; It is compiled with NEXT linkage,
+;;; so the primitive branch is just an assignment,
+;;; and the compiled branch sets CONTINUE to a label after the evaluation.
+
+;; (ASSIGN PROC (OP LOOKUP-VARIABLE-VALUE) (CONST >) (REG ENV))
+;; (ASSIGN VAL (OP LOOKUP-VARIABLE-VALUE) (CONST N) (REG ENV))
+;; (ASSIGN ARGL (OP LIST) (REG VAL))
+;; (ASSIGN VAL (OP LOOKUP-VARIABLE-VALUE) (CONST COUNTER) (REG ENV))
+;; (ASSIGN ARGL (OP CONS) (REG VAL) (REG ARGL))
+;; (TEST (OP PRIMITIVE-PROCEDURE?) (REG PROC))
+;; (BRANCH (LABEL PRIMITIVE-BRANCH8))
+;; COMPILED-BRANCH9
+;; (ASSIGN CONTINUE (LABEL AFTER-CALL10))
+;; (ASSIGN VAL (OP COMPILED-PROCEDURE-ENTRY) (REG PROC))
+;; (GOTO (REG VAL))
+;; PRIMITIVE-BRANCH8
+;; (ASSIGN VAL (OP APPLY-PRIMITIVE-PROCEDURE) (REG PROC) (REG ARGL))
+;; AFTER-CALL10
+
+;;; In the true branch we just have an assignment,
+;;; and as it is the last statement, we GOTO to the continuation.
+
+;; (ASSIGN VAL (OP LOOKUP-VARIABLE-VALUE) (CONST PRODUCT) (REG ENV))
+;; (GOTO (REG CONTINUE))
+
+;;; The false branch is a bit more complex.
+;;; Here we have a recursive call:
+
+;; (ASSIGN PROC (OP LOOKUP-VARIABLE-VALUE) (CONST ITER) (REG ENV))
+;; (SAVE CONTINUE)
+;; (SAVE PROC)
+;; (SAVE ENV)
+;; <compile code for the (+ COUNTER 1) call>
+;; (ASSIGN ARGL (OP LIST) (REG VAL))
+;; (RESTORE ENV)
+;; (SAVE ARGL)
+;; <compile code for the (* COUNTER PRODUCT) call>
+;; (RESTORE ARGL)
+;; (ASSIGN ARGL (OP CONS) (REG VAL) (REG ARGL))
+;; (RESTORE PROC)
+;; (RESTORE CONTINUE)
+;; (TEST (OP PRIMITIVE-PROCEDURE?) (REG PROC))
+;; (BRANCH (LABEL PRIMITIVE-BRANCH17))
+;; COMPILED-BRANCH18
+;; (ASSIGN VAL (OP COMPILED-PROCEDURE-ENTRY) (REG PROC))
+;; (GOTO (REG VAL))
+;; PRIMITIVE-BRANCH17
+;; (ASSIGN VAL (OP APPLY-PRIMITIVE-PROCEDURE) (REG PROC) (REG ARGL))
+;; (GOTO (REG CONTINUE))
+;; AFTER-CALL19
+
+;;; Note that as this is the last instruction, it does not save CONTINUE before the call.
+;;; This is why the stack does not grow in each iteration.
+
+;;; Code for (+ COUNTER 1):
+
+;; (ASSIGN PROC (OP LOOKUP-VARIABLE-VALUE) (CONST +) (REG ENV))
+;; (ASSIGN VAL (CONST 1))
+;; (ASSIGN ARGL (OP LIST) (REG VAL))
+;; (ASSIGN VAL (OP LOOKUP-VARIABLE-VALUE) (CONST COUNTER) (REG ENV))
+;; (ASSIGN ARGL (OP CONS) (REG VAL) (REG ARGL))
+;; (TEST (OP PRIMITIVE-PROCEDURE?) (REG PROC))
+;; (BRANCH (LABEL PRIMITIVE-BRANCH14))
+;; COMPILED-BRANCH15
+;; (ASSIGN CONTINUE (LABEL AFTER-CALL16))
+;; (ASSIGN VAL (OP COMPILED-PROCEDURE-ENTRY) (REG PROC))
+;; (GOTO (REG VAL))
+;; PRIMITIVE-BRANCH14
+;; (ASSIGN VAL (OP APPLY-PRIMITIVE-PROCEDURE) (REG PROC) (REG ARGL))
+;; AFTER-CALL16
+
+;;; Code for (* COUNTER PRODUCT):
+
+;; (ASSIGN PROC (OP LOOKUP-VARIABLE-VALUE) (CONST *) (REG ENV))
+;; (ASSIGN VAL (OP LOOKUP-VARIABLE-VALUE) (CONST PRODUCT) (REG ENV))
+;; (ASSIGN ARGL (OP LIST) (REG VAL))
+;; (ASSIGN VAL (OP LOOKUP-VARIABLE-VALUE) (CONST COUNTER) (REG ENV))
+;; (ASSIGN ARGL (OP CONS) (REG VAL) (REG ARGL))
+;; (TEST (OP PRIMITIVE-PROCEDURE?) (REG PROC))
+;; (BRANCH (LABEL PRIMITIVE-BRANCH11))
+;; COMPILED-BRANCH12
+;; (ASSIGN CONTINUE (LABEL AFTER-CALL13))
+;; (ASSIGN VAL (OP COMPILED-PROCEDURE-ENTRY) (REG PROC))
+;; (GOTO (REG VAL))
+;; PRIMITIVE-BRANCH11
+;; (ASSIGN VAL (OP APPLY-PRIMITIVE-PROCEDURE) (REG PROC) (REG ARGL))
+;; AFTER-CALL13
+
+;;; Exercise 5.34 END
+
+;;; Exercise 5.35 START
+
+;; (define (f x) (+ x (g (+ x 2))))
+
+;;; Exercise 5.35 END
+
+;;; Exercise 5.36 START
+
+;;; Operands are evaluated right-to-left.
+;;; It is determined in CONSTRUCT-ARGLIST and CODE-TO-GET-REST-ARGS.
+;;; This is because it is simpler to grow a list to the left by consing;
+;;; otherwise we would have to append each time or reverse once,
+;;; each of which is costly.
+
+(defun construct-arglist-1 (operand-codes)
+  "Left-to-right evaluation.
+Does not reverse OPERAND-CODES, but compiles a REVERSE operation."
+  (if (null operand-codes)
+      (make-instruction-sequence
+       '() '(argl)
+       '((assign argl (const ()))))
+      (let ((code-to-get-last-arg
+             (append-instruction-sequences
+              (car operand-codes)
+              (make-instruction-sequence
+               '(val) '(argl)
+               '((assign argl (op list) (reg val)))))))
+        (if (null (cdr operand-codes))
+            code-to-get-last-arg
+            (append-instruction-sequences
+             (preserving '(env) code-to-get-last-arg
+                         (code-to-get-rest-args (cdr operand-codes)))
+             (make-instruction-sequence
+              '(argl) '(argl)
+              '((assign argl (op reverse) (reg argl)))))))))
+
+;;; Exercise 5.36 END
+
+;;; Exercise 5.37 START
+
+(defun preserving-1 (regs seq1 seq2)
+  "Always preserving."
+  (if (null regs)
+      (append-instruction-sequences seq1 seq2)
+      (let ((first-reg (car regs)))
+        (preserving-1 (cdr regs)
+                      (make-instruction-sequence
+                       (list-union (list first-reg) (registers-needed seq1))
+                       (list-difference (registers-modified seq1) (list first-reg))
+                       (append `((save ,first-reg)) (statements seq1) `((restore ,first-reg))))
+                      seq2))))
+
+;;; Test:
+;;; (compile% '(f x (g 1) y) 'val 'next)
+
+;; -(SAVE CONTINUE)
+;; -(SAVE ENV)
+;; -(SAVE CONTINUE)
+;; (ASSIGN PROC (OP LOOKUP-VARIABLE-VALUE) (CONST F) (REG ENV))
+;; -(RESTORE CONTINUE)
+;; -(RESTORE ENV)
+;; -(RESTORE CONTINUE)
+;; -(SAVE CONTINUE)
+;; (SAVE PROC)
+;; -(SAVE ENV)
+;; -(SAVE CONTINUE)
+;; (ASSIGN VAL (OP LOOKUP-VARIABLE-VALUE) (CONST Y) (REG ENV))
+;; -(RESTORE CONTINUE)
+;; (ASSIGN ARGL (OP LIST) (REG VAL))
+;; -(RESTORE ENV)
+;; (SAVE ENV)
+;; (SAVE ARGL)
+;; -(SAVE CONTINUE)
+;; -(SAVE ENV)
+;; -(SAVE CONTINUE)
+;; (ASSIGN PROC (OP LOOKUP-VARIABLE-VALUE) (CONST G) (REG ENV))
+;; -(RESTORE CONTINUE)
+;; -(RESTORE ENV)
+;; -(RESTORE CONTINUE)
+;; -(SAVE CONTINUE)
+;; -(SAVE PROC)
+;; -(SAVE CONTINUE)
+;; (ASSIGN VAL (CONST 1))
+;; -(RESTORE CONTINUE)
+;; (ASSIGN ARGL (OP LIST) (REG VAL))
+;; -(RESTORE PROC)
+;; -(RESTORE CONTINUE)
+;; (TEST (OP PRIMITIVE-PROCEDURE?) (REG PROC))
+;; (BRANCH (LABEL PRIMITIVE-BRANCH1))
+;; COMPILED-BRANCH2
+;; (ASSIGN CONTINUE (LABEL AFTER-CALL3))
+;; (ASSIGN VAL (OP COMPILED-PROCEDURE-ENTRY) (REG PROC))
+;; (GOTO (REG VAL))
+;; PRIMITIVE-BRANCH1
+;; -(SAVE CONTINUE)
+;; (ASSIGN VAL (OP APPLY-PRIMITIVE-PROCEDURE) (REG PROC) (REG ARGL))
+;; -(RESTORE CONTINUE)
+;; AFTER-CALL3
+;; (RESTORE ARGL)
+;; (ASSIGN ARGL (OP CONS) (REG VAL) (REG ARGL))
+;; (RESTORE ENV)
+;; -(SAVE ARGL)
+;; -(SAVE CONTINUE)
+;; (ASSIGN VAL (OP LOOKUP-VARIABLE-VALUE) (CONST X) (REG ENV))
+;; -(RESTORE CONTINUE)
+;; -(RESTORE ARGL)
+;; (ASSIGN ARGL (OP CONS) (REG VAL) (REG ARGL))
+;; (RESTORE PROC)
+;; -(RESTORE CONTINUE)
+;; (TEST (OP PRIMITIVE-PROCEDURE?) (REG PROC))
+;; (BRANCH (LABEL PRIMITIVE-BRANCH4))
+;; COMPILED-BRANCH5
+;; (ASSIGN CONTINUE (LABEL AFTER-CALL6))
+;; (ASSIGN VAL (OP COMPILED-PROCEDURE-ENTRY) (REG PROC))
+;; (GOTO (REG VAL))
+;; PRIMITIVE-BRANCH4
+;; -(SAVE CONTINUE)
+;; (ASSIGN VAL (OP APPLY-PRIMITIVE-PROCEDURE) (REG PROC) (REG ARGL))
+;; -(RESTORE CONTINUE)
+;; AFTER-CALL6
+
+;;; Unnecessary stack operations are prefixed with a dash.
+;;; 59 instructions, of which 32 are unnecessary (54%).
+
+;;; Exercise 5.37 END
+
+;;; Exercise 5.38 START
+
+
+
+;;; Exercise 5.38 END
+
 #+nil
 (compile%
  '(define (factorial n)
