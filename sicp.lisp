@@ -7807,9 +7807,12 @@ FINAL is a function taking no arguments, called when not found."
 
 (defparameter *primitive-procedures*
   (mapcar #'lisp->scheme
-          `(car cdr cadr cons list list-ref length assoc random
-            + - * / abs (even? ,(tfify #'evenp)) (prime? ,(tfify #'primep))
-            (display prin1) (newline terpri)
+          `(car cdr cadr cddr caadr caddr cdadr cdddr cadddr cons list list-ref length assoc random
+            read + - * / abs (display prin1) (newline terpri) (set-car! rplaca) (set-cdr! rplacd)
+            (apply-in-underlying-scheme ,(lambda (x args) (apply (second x) args)))
+            (even? ,(tfify #'evenp)) (prime? ,(tfify #'primep))
+            (number? ,(tfify #'numberp)) (pair? ,(tfify #'consp))
+            (string? ,(tfify #'stringp)) (symbol? ,(tfify #'symbolp))
             (not ,(tfify #'falsep)) (null? ,(tfify #'null))
             (eq? ,(tfify #'eq)) (equal? ,(tfify #'equal))
             (< ,(tfify #'<)) (> ,(tfify #'>)) (= ,(tfify #'=)))))
@@ -13562,7 +13565,7 @@ I also added LET."
         ((assignmentp exp) (compile-assignment-1 exp cenv target linkage))
         ((definitionp exp) (compile-definition-1 exp cenv target linkage))
         ((ifp exp) (compile-if-1 exp cenv target linkage))
-        ((lambdap exp) (compile-lambda-1 exp cenv target linkage))
+        ((lambdap exp) (compile-lambda-2 exp cenv target linkage))
         ((beginp exp) (compile-sequence-1 (begin-actions exp) cenv target linkage))
         ((condp exp) (compile-2 (cond->if exp) cenv target linkage))
         ((letp exp) (compile-2 (let->combination exp) cenv target linkage))
@@ -13688,6 +13691,21 @@ I also added LET."
 ;;; Exercise 5.42 END
 
 ;;; Exercise 5.43 START
+
+(defun compile-lambda-2 (exp cenv target linkage)
+  "Calls COMPILE-LAMBDA-BODY-2."
+  (let ((proc-entry (make-label 'entry))
+        (after-lambda (make-label 'after-lambda)))
+    (let ((lambda-linkage (if (eq linkage 'next) after-lambda linkage)))
+      (append-instruction-sequences
+       (tack-on-instruction-sequence
+        (end-with-linkage
+         lambda-linkage
+         (make-instruction-sequence
+          '(env) (list target)
+          `((assign ,target (op make-compiled-procedure) (label ,proc-entry) (reg env)))))
+        (compile-lambda-body-2 exp cenv proc-entry))
+       after-lambda))))
 
 (defun compile-lambda-body-2 (exp cenv proc-entry)
   "Also scans out defines."
@@ -13928,7 +13946,29 @@ Compiles the code, and creates a function that calls its interpreter."
 
 ;;; Exercise 5.50 START
 
+(eval-when (:execute)
+  (defparameter *metacircular-code*
+    (with-open-file (s "metacircular.scm")
+      (do ((acc (list 'begin) (cons sexp acc))
+           (sexp (read s nil 'eof) (read s nil 'eof)))
+          ((eq sexp 'eof) (nreverse acc)))))
+  (defparameter *metacircular*
+    (make-machine-3
+     '(continue env exp argl proc val compapp)
+     (primitive-operators)
+     (append '((perform (op trace-off))
+               (assign env (op get-global-environment)))
+             (third (compile-2 *metacircular-code* '() 'val 'next)))))
+  (defun start-metacircular ()
+    (setf *the-global-environment* (setup-environment))
+    (start *metacircular*)))
 
+;;; Try it with the factorial program:
+#+nil
+(define (f n)
+  (if (= n 0)
+      1
+      (* n (f (- n 1)))))
 
 ;;; Exercise 5.50 END
 
