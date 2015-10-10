@@ -13785,7 +13785,7 @@ Compiles the code, and creates a function that calls its interpreter."
 
 (defun compile-and-go (expression)
   (let ((instructions (assemble-2 (statements (compile-2 expression '() 'val 'return)) *eceval*)))
-    (setf *the-global-environment* (setup-environment))
+    (setf *the-global-environment* (setup-environment-1))
     (set-register-contents *eceval* 'val instructions)
     (set-register-contents *eceval* 'flag 'true)
     (start *eceval*)))
@@ -13910,7 +13910,20 @@ Compiles the code, and creates a function that calls its interpreter."
 
 ;;; Exercise 5.48 START
 
-
+(defun setup-environment-1 ()
+  "Used by COMPILE-AND-GO. Enables COMPILE-AND-RUN."
+  (extend-environment
+   '(compile-and-run)
+   `((primitive
+      ,(lambda (exp)
+         (let ((instructions
+                (assemble-2
+                 (append (statements (compile-2 exp '() 'val 'next))
+                         '((restore continue)
+                           (goto (reg continue))))
+                 *eceval*)))
+           (funcall (funcall (funcall *eceval* 'stack) 'push) instructions)))))
+   (setup-environment)))
 
 ;;; Exercise 5.48 END
 
