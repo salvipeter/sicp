@@ -12736,7 +12736,6 @@ Some function calls are updated to the versions in the exercises."
 
 (defun empty-instruction-sequence ()
   (make-instruction-sequence '() '() '()))
-
 ;;; Exercise 5.31 START
 
 ;;; Order of evaluation: [1] operator [2] operands (right to left)
@@ -13484,6 +13483,200 @@ Does not reverse OPERAND-CODES, but compiles a REVERSE operation."
 
 
 ;;; Section 5.5.6
+
+#+nil
+(compile-2 '((lambda (x y)
+               (lambda (a b c d e)
+                 ((lambda (y z) (* x y z))
+                  (* a b x)
+                  (+ c d x))))
+             3 4)
+           '() 'val 'next)
+
+;;; Exercise 5.39 START
+
+(defun lexical-address-lookup (addr env)
+  (let ((frame (elt env (first addr))))
+    (if (< (length (car frame)) (second addr))
+        (error "Invalid address: ~a" addr)
+        (let ((val (elt (cdr frame) (second addr))))
+          (if (eq val '*unassigned*)
+              (error "Using an unassigned variable: ~a"
+                     (elt (car frame) (second addr)))
+              val)))))
+
+(defun lexical-address-set (addr env val)
+  (let ((frame (elt env (first addr))))
+    (if (< (length (car frame)) (second addr))
+        (error "Invalid address: ~a" addr)
+        (setf (elt (cdr frame) (second addr)) val))))
+
+;;; Exercise 5.39 END
+
+;;; Exercise 5.40 START
+
+(defun compile-2 (exp cenv target linkage)
+  "With compiled environment.
+I also added LET."
+  (cond ((self-evaluating-p exp) (compile-self-evaluating exp target linkage))
+        ((quotedp exp) (compile-quoted exp target linkage))
+        ((variablep exp) (compile-variable-1 exp cenv target linkage))
+        ((assignmentp exp) (compile-assignment-1 exp cenv target linkage))
+        ((definitionp exp) (compile-definition-1 exp cenv target linkage))
+        ((ifp exp) (compile-if-1 exp cenv target linkage))
+        ((lambdap exp) (compile-lambda-1 exp cenv target linkage))
+        ((beginp exp) (compile-sequence-1 (begin-actions exp) cenv target linkage))
+        ((condp exp) (compile-2 (cond->if exp) cenv target linkage))
+        ((letp exp) (compile-2 (let->combination exp) cenv target linkage))
+        ((applicationp exp) (compile-application-1 exp cenv target linkage))
+        (t (error "Unknown expression type: ~a -- COMPILE-2" exp))))
+
+(defun compile-definition-1 (exp cenv target linkage)
+  (let ((var (definition-variable exp))
+        (get-value-code (compile-2 (definition-value exp) cenv 'val 'next)))
+    (end-with-linkage
+     linkage
+     (preserving '(env) get-value-code
+                 (make-instruction-sequence
+                  '(env val) (list target)
+                  `((perform (op define-variable!) (const ,var) (reg val) (reg env))
+                    (assign ,target (const ok))))))))
+
+(defun compile-if-1 (exp cenv target linkage)
+  (let ((t-branch (make-label 'true-branch))
+        (f-branch (make-label 'false-branch))
+        (after-if (make-label 'after-if)))
+    (let ((consequent-linkage (if (eq linkage 'next) after-if linkage)))
+      (let ((p-code (compile-2 (if-predicate exp) cenv 'val 'next))
+            (c-code (compile-2 (if-consequent exp) cenv target consequent-linkage))
+            (a-code (compile-2 (if-alternative exp) cenv target linkage)))
+        (preserving '(env continue) p-code
+                    (append-instruction-sequences
+                     (make-instruction-sequence
+                      '(val) '()
+                      `((test (op false?) (reg val))
+                        (branch (label ,f-branch))))
+                     (parallel-instruction-sequences
+                      (append-instruction-sequences t-branch c-code)
+                      (append-instruction-sequences f-branch a-code))
+                     after-if))))))
+
+(defun compile-sequence-1 (seq cenv target linkage)
+  (if (last-exp-p seq)
+      (compile-2 (first-exp seq) cenv target linkage)
+      (preserving '(env continue)
+                  (compile-2 (first-exp seq) cenv target 'next)
+                  (compile-sequence-1 (rest-exps seq) cenv target linkage))))
+
+(defun compile-lambda-1 (exp cenv target linkage)
+  (let ((proc-entry (make-label 'entry))
+        (after-lambda (make-label 'after-lambda)))
+    (let ((lambda-linkage (if (eq linkage 'next) after-lambda linkage)))
+      (append-instruction-sequences
+       (tack-on-instruction-sequence
+        (end-with-linkage
+         lambda-linkage
+         (make-instruction-sequence
+          '(env) (list target)
+          `((assign ,target (op make-compiled-procedure) (label ,proc-entry) (reg env)))))
+        (compile-lambda-body-1 exp cenv proc-entry))
+       after-lambda))))
+
+(defun compile-lambda-body-1 (exp cenv proc-entry)
+  (let ((formals (lambda-parameters exp)))
+    (append-instruction-sequences
+     (make-instruction-sequence
+      '(env proc argl) '(env)
+      `(,proc-entry
+        (assign env (op compiled-procedure-env) (reg proc))
+        (assign env (op extend-environment) (const ,formals) (reg argl) (reg env))))
+     (let ((cenv-extended (extend-compile-environment formals cenv)))
+       (compile-sequence-1 (lambda-body exp) cenv-extended 'val 'return)))))
+
+(defun compile-application-1 (exp cenv target linkage)
+  (let ((proc-code (compile-2 (operator exp) cenv 'proc 'next))
+        (operand-codes (mapcar (lambda (operand) (compile-2 operand cenv 'val 'next))
+                               (operands exp))))
+    (preserving '(env continue) proc-code
+                (preserving '(proc continue) (construct-arglist operand-codes)
+                            (compile-procedure-call target linkage)))))
+
+(defun extend-compile-environment (vars cenv)
+  (cons vars cenv))
+
+;;; Exercise 5.40 END
+
+;;; Exercise 5.41 START
+
+(defun find-variable (var cenv)
+  (labels ((rec (frames i)
+             (if (null frames)
+                 'not-found
+                 (let ((pos (position var (first frames))))
+                   (if (null pos)
+                       (rec (rest frames) (1+ i))
+                       (list i pos)))))) 
+    (rec cenv 0)))
+
+;;; Exercise 5.41 END
+
+;;; Exercise 5.42 START
+
+(defun compile-variable-1 (exp cenv target linkage)
+  (let ((addr (find-variable exp cenv)))
+    (end-with-linkage
+     linkage
+     (make-instruction-sequence
+      '(env) (list target)
+      (if (eq addr 'not-found)
+          `((assign ,target (op lookup-variable-value) (const ,exp) (reg env)))
+          `((assign ,target (op lexical-address-lookup) (const ,addr) (reg env))))))))
+
+(defun compile-assignment-1 (exp cenv target linkage)
+  (let* ((var (assignment-variable exp))
+         (addr (find-variable exp cenv))
+         (get-value-code (compile-2 (assignment-value exp) cenv 'val 'next)))
+    (end-with-linkage
+     linkage
+     (preserving '(env) get-value-code
+                 (make-instruction-sequence
+                  '(env val) (list target)
+                  (if (eq addr 'not-found)
+                      `((perform (op set-variable-value!) (const ,var) (reg val) (reg env))
+                        (assign ,target (const ok)))
+                      `((perform (op lexical-address-set!) (const ,addr) (reg val) (reg env))
+                        (assign ,target (const ok)))))))))
+
+;;; Exercise 5.42 END
+
+;;; Exercise 5.43 START
+
+(defun compile-lambda-body-2 (exp cenv proc-entry)
+  "Also scans out defines."
+  (let ((formals (lambda-parameters exp)))
+    (append-instruction-sequences
+     (make-instruction-sequence
+      '(env proc argl) '(env)
+      `(,proc-entry
+        (assign env (op compiled-procedure-env) (reg proc))
+        (assign env (op extend-environment) (const ,formals) (reg argl) (reg env))))
+     (let ((cenv-extended (extend-compile-environment formals cenv)))
+       (compile-sequence-1 (scan-out-defines (lambda-body exp)) cenv-extended 'val 'return)))))
+
+;;; Exercise 5.43 END
+
+;;; Exercise 5.44 START
+
+;;; We need to rewrite OPEN-CODED-P to also take the compile time environment:
+
+(defun open-coded-p-1 (exp cenv)
+  (and (member (car exp) '(= * - +))
+       (eq (find-variable (car exp) cenv) 'not-found)))
+
+;;; Exercise 5.44 END
+
+
+;;; Section 5.5.7
 
 #+nil
 (compile%
