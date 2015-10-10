@@ -12230,360 +12230,385 @@ Some function calls are updated to the versions in the exercises."
 
 ;;; Section 5.4
 
-(defmachine-3 evaluator () (exp env val continue proc argl unev) val
-    ((adjoin-arg #'adjoin-arg)
-     (announce-output #'announce-output)
-     (application? #'applicationp)
-     (apply-primitive-procedure #'apply-primitive-procedure)
-     (assignment-value #'assignment-value)
-     (assignment-variable #'assignment-variable)
-     (assignment? #'assignmentp)
-     (begin-actions #'begin-actions)
-     (begin? #'beginp)
-     (car #'car)
-     (cdr #'cdr)
-     (compound-procedure? #'compound-procedure-p)
-     (cond-actions #'cond-actions)
-     (cond-clauses #'cond-clauses)
-     (cond-else-clause? #'cond-else-clause-p)
-     (cond-predicate #'cond-predicate)
-     (cond? #'condp)
-     (define-variable! #'define-variable)
-     (definition-value #'definition-value)
-     (definition-variable #'definition-variable)
-     (definition? #'definitionp)
-     (empty-arglist #'empty-arglist)
-     (extend-environment #'extend-environment)
-     (first-exp #'first-exp)
-     (first-operand #'first-operand)
-     (get-global-environment #'get-global-environment)
-     (if-alternative #'if-alternative)
-     (if-consequent #'if-consequent)
-     (if-predicate #'if-predicate)
-     (if? #'ifp)
-     (lambda-body #'lambda-body)
-     (lambda-parameters #'lambda-parameters)
-     (lambda? #'lambdap)
-     (last-exp? #'last-exp-p)
-     (last-operand? #'last-operand-p)
-     (let->combination #'let->combination)
-     (let? #'letp)
-     (lookup-variable-value #'lookup-variable-value)
-     (make-procedure #'make-procedure)
-     (no-more-exps? #'no-more-exps-p)
-     (no-operands? #'no-operands-p)
-     (operands #'operands)
-     (operator #'operator)
-     (primitive-procedure? #'primitive-procedure-p)
-     (procedure-body #'procedure-body)
-     (procedure-environment #'procedure-environment)
-     (procedure-parameters #'procedure-parameters)
-     (prompt-for-input #'prompt-for-input)
-     (quoted? #'quotedp)
-     (read #'read)
-     (rest-exps #'rest-exps)
-     (rest-operands #'rest-operands)
-     (self-evaluating? #'self-evaluating-p)
-     (set-variable-value! #'set-variable-value)
-     (symbol? #'symbolp)
-     (text-of-quotation #'text-of-quotation)
-     (true? #'truep)
-     (user-print #'user-print)
-     (variable? #'variablep))
-    "Scheme evaluator."
-  (goto (label read-eval-print-loop)) ; see Section 5.4.4
+(defparameter *eceval*
+  (make-machine-3
+   '(exp env val continue proc argl unev)
+   (list (list 'adjoin-arg #'adjoin-arg)
+         (list 'announce-output #'announce-output)
+         (list 'application? #'applicationp)
+         (list 'apply-primitive-procedure #'apply-primitive-procedure)
+         (list 'assignment-value #'assignment-value)
+         (list 'assignment-variable #'assignment-variable)
+         (list 'assignment? #'assignmentp)
+         (list 'begin-actions #'begin-actions)
+         (list 'begin? #'beginp)
+         (list 'car #'car)
+         (list 'cdr #'cdr)
+         (list 'compiled-procedure-entry #'compiled-procedure-entry)
+         (list 'compiled-procedure-env #'compiled-procedure-env)
+         (list 'compiled-procedure? #'compiled-procedure-p)
+         (list 'compound-procedure? #'compound-procedure-p)
+         (list 'cond-actions #'cond-actions)
+         (list 'cond-clauses #'cond-clauses)
+         (list 'cond-else-clause? #'cond-else-clause-p)
+         (list 'cond-predicate #'cond-predicate)
+         (list 'cond? #'condp)
+         (list 'cons #'cons)
+         (list 'define-variable! #'define-variable)
+         (list 'definition-value #'definition-value)
+         (list 'definition-variable #'definition-variable)
+         (list 'definition? #'definitionp)
+         (list 'empty-arglist #'empty-arglist)
+         (list 'extend-environment #'extend-environment)
+         (list 'false? #'falsep)
+         (list 'first-exp #'first-exp)
+         (list 'first-operand #'first-operand)
+         (list 'get-global-environment #'get-global-environment)
+         (list 'if-alternative #'if-alternative)
+         (list 'if-consequent #'if-consequent)
+         (list 'if-predicate #'if-predicate)
+         (list 'if? #'ifp)
+         (list 'lambda-body #'lambda-body)
+         (list 'lambda-parameters #'lambda-parameters)
+         (list 'lambda? #'lambdap)
+         (list 'last-exp? #'last-exp-p)
+         (list 'last-operand? #'last-operand-p)
+         (list 'let->combination #'let->combination)
+         (list 'let? #'letp)
+         (list 'lexical-address-lookup #'lexical-address-lookup)
+         (list 'list #'list)
+         (list 'lookup-variable-value #'lookup-variable-value)
+         (list 'make-compiled-procedure #'make-compiled-procedure)
+         (list 'make-procedure #'make-procedure)
+         (list 'no-more-exps? #'no-more-exps-p)
+         (list 'no-operands? #'no-operands-p)
+         (list 'operands #'operands)
+         (list 'operator #'operator)
+         (list 'primitive-procedure? #'primitive-procedure-p)
+         (list 'procedure-body #'procedure-body)
+         (list 'procedure-environment #'procedure-environment)
+         (list 'procedure-parameters #'procedure-parameters)
+         (list 'prompt-for-input #'prompt-for-input)
+         (list 'quoted? #'quotedp)
+         (list 'read #'read)
+         (list 'rest-exps #'rest-exps)
+         (list 'rest-operands #'rest-operands)
+         (list 'self-evaluating? #'self-evaluating-p)
+         (list 'set-variable-value! #'set-variable-value)
+         (list 'symbol? #'symbolp)
+         (list 'text-of-quotation #'text-of-quotation)
+         (list 'true? #'truep)
+         (list 'user-print #'user-print-2)
+         (list 'variable? #'variablep))
+   '((branch (label external-entry))     ; see Section 5.5.7
+     (goto (label read-eval-print-loop)) ; see Section 5.4.4
 
-  ;; Section 5.4.1 - Evaluation dispatch
-  eval-dispatch
-  (test (op self-evaluating?) (reg exp))
-  (branch (label ev-self-eval))
-  (test (op variable?) (reg exp))
-  (branch (label ev-variable))
-  (test (op quoted?) (reg exp))
-  (branch (label ev-quoted))
-  (test (op assignment?) (reg exp))
-  (branch (label ev-assignment))
-  (test (op definition?) (reg exp))
-  (branch (label ev-definition))
-  (test (op if?) (reg exp))
-  (branch (label ev-if))
-  (test (op lambda?) (reg exp))
-  (branch (label ev-lambda))
-  (test (op begin?) (reg exp))
-  (branch (label ev-begin))
+     ;; Section 5.4.1 - Evaluation dispatch
+     eval-dispatch
+     (test (op self-evaluating?) (reg exp))
+     (branch (label ev-self-eval))
+     (test (op variable?) (reg exp))
+     (branch (label ev-variable))
+     (test (op quoted?) (reg exp))
+     (branch (label ev-quoted))
+     (test (op assignment?) (reg exp))
+     (branch (label ev-assignment))
+     (test (op definition?) (reg exp))
+     (branch (label ev-definition))
+     (test (op if?) (reg exp))
+     (branch (label ev-if))
+     (test (op lambda?) (reg exp))
+     (branch (label ev-lambda))
+     (test (op begin?) (reg exp))
+     (branch (label ev-begin))
 ;;; Exercise 5.23 START
 
-  ;; See also below.
-  ;; Here only LET is implemented,
-  ;; see the next exercise for COND.
-  (test (op let?) (reg exp))
-  (branch (label ev-let))
+     ;; See also below.
+     ;; Here only LET is implemented,
+     ;; see the next exercise for COND.
+     (test (op let?) (reg exp))
+     (branch (label ev-let))
 
 ;;; Exercise 5.23 END
 ;;; Exercise 5.24 START
 
-  ;; See also below.
-  (test (op cond?) (reg exp))
-  (branch (label ev-cond))
+     ;; See also below.
+     (test (op cond?) (reg exp))
+     (branch (label ev-cond))
 
 ;;; Exercise 5.24 END
-  (test (op application?) (reg exp))
-  (branch (label ev-application))
-  (goto (label unknown-expression-type))
-  ev-self-eval
-  (assign val (reg exp))
-  (goto (reg continue))
-  ev-variable
-  (assign val (op lookup-variable-value) (reg exp) (reg env))
-  (goto (reg continue))
-  ev-quoted
-  (assign val (op text-of-quotation) (reg exp))
-  (goto (reg continue))
-  ev-lambda
-  (assign unev (op lambda-parameters) (reg exp))
-  (assign exp (op lambda-body) (reg exp))
-  (assign val (op make-procedure) (reg unev) (reg exp) (reg env))
-  (goto (reg continue))
+     (test (op application?) (reg exp))
+     (branch (label ev-application))
+     (goto (label unknown-expression-type))
+     ev-self-eval
+     (assign val (reg exp))
+     (goto (reg continue))
+     ev-variable
+     (assign val (op lookup-variable-value) (reg exp) (reg env))
+     (goto (reg continue))
+     ev-quoted
+     (assign val (op text-of-quotation) (reg exp))
+     (goto (reg continue))
+     ev-lambda
+     (assign unev (op lambda-parameters) (reg exp))
+     (assign exp (op lambda-body) (reg exp))
+     (assign val (op make-procedure) (reg unev) (reg exp) (reg env))
+     (goto (reg continue))
 
-  ;; Evaluating the function and its arguments
-  ev-application
-  (save continue)
-  (assign unev (op operands) (reg exp))
-  (assign exp (op operator) (reg exp))
+     ;; Evaluating the function and its arguments
+     ev-application
+     (save continue)
+     (assign unev (op operands) (reg exp))
+     (assign exp (op operator) (reg exp))
 ;;; Exercise 5.32 START
 
-  ;; See also below.
-  (test (op symbol?) (reg exp))
-  (branch (label ev-appl-operator-symbol))
+     ;; See also below.
+     (test (op symbol?) (reg exp))
+     (branch (label ev-appl-operator-symbol))
 
 ;;; Exercise 5.32 END
-  (save env)                            ; brought down because
-  (save unev)                           ; of Exercise 5.32
-  (assign continue (label ev-appl-did-operator))
-  (goto (label eval-dispatch))
+     (save env)                         ; brought down because
+     (save unev)                        ; of Exercise 5.32
+     (assign continue (label ev-appl-did-operator))
+     (goto (label eval-dispatch))
 ;;; Exercise 5.32 START
 
-  ;; See also above/below.
-  ev-appl-operator-symbol
-  (assign continue (label ev-appl-after-restore))
-  (goto (label eval-dispatch))
+     ;; See also above/below.
+     ev-appl-operator-symbol
+     (assign continue (label ev-appl-after-restore))
+     (goto (label eval-dispatch))
 
 ;;; Exercise 5.32 END
-  ev-appl-did-operator
-  (restore unev)                        ; the operands
-  (restore env)
+     ev-appl-did-operator
+     (restore unev)                     ; the operands
+     (restore env)
 ;;; Exercise 5.32 START
 
-  ;; See also above/below.
-  ev-appl-after-restore
+     ;; See also above/below.
+     ev-appl-after-restore
 
 ;;; Exercise 5.32 END
-  (assign argl (op empty-arglist))
-  (assign proc (reg val))               ; the operator
-  (test (op no-operands?) (reg unev))
-  (branch (label apply-dispatch))
-  (save proc)
-  ev-appl-operand-loop
-  (save argl)
-  (assign exp (op first-operand) (reg unev))
-  (test (op last-operand?) (reg unev))
-  (branch (label ev-appl-last-arg))
-  (save env)
-  (save unev)
-  (assign continue (label ev-appl-accumulate-arg))
-  (goto (label eval-dispatch))
-  ev-appl-accumulate-arg
-  (restore unev)
-  (restore env)
-  (restore argl)
-  (assign argl (op adjoin-arg) (reg val) (reg argl))
-  (assign unev (op rest-operands) (reg unev))
-  (goto (label ev-appl-operand-loop))
-  ev-appl-last-arg
-  (assign continue (label ev-appl-accum-last-arg))
-  (goto (label eval-dispatch))
-  ev-appl-accum-last-arg
-  (restore argl)
-  (assign argl (op adjoin-arg) (reg val) (reg argl))
-  (restore proc)
-  (goto (label apply-dispatch))
+     (assign argl (op empty-arglist))
+     (assign proc (reg val))            ; the operator
+     (test (op no-operands?) (reg unev))
+     (branch (label apply-dispatch))
+     (save proc)
+     ev-appl-operand-loop
+     (save argl)
+     (assign exp (op first-operand) (reg unev))
+     (test (op last-operand?) (reg unev))
+     (branch (label ev-appl-last-arg))
+     (save env)
+     (save unev)
+     (assign continue (label ev-appl-accumulate-arg))
+     (goto (label eval-dispatch))
+     ev-appl-accumulate-arg
+     (restore unev)
+     (restore env)
+     (restore argl)
+     (assign argl (op adjoin-arg) (reg val) (reg argl))
+     (assign unev (op rest-operands) (reg unev))
+     (goto (label ev-appl-operand-loop))
+     ev-appl-last-arg
+     (assign continue (label ev-appl-accum-last-arg))
+     (goto (label eval-dispatch))
+     ev-appl-accum-last-arg
+     (restore argl)
+     (assign argl (op adjoin-arg) (reg val) (reg argl))
+     (restore proc)
+     (goto (label apply-dispatch))
 
-  ;; Application
-  apply-dispatch
-  (test (op primitive-procedure?) (reg proc))
-  (branch (label primitive-apply))
-  (test (op compound-procedure?) (reg proc))
-  (branch (label compound-apply))
-  (goto (label unknown-procedure-type))
-  primitive-apply
-  (assign val (op apply-primitive-procedure) (reg proc) (reg argl))
-  (restore continue)
-  (goto (reg continue))
-  compound-apply
-  (assign unev (op procedure-parameters) (reg proc))
-  (assign env (op procedure-environment) (reg proc))
-  (assign env (op extend-environment) (reg unev) (reg argl) (reg env))
-  (assign unev (op procedure-body) (reg proc))
-  (goto (label ev-sequence))
+     ;; Application
+     apply-dispatch
+     (test (op primitive-procedure?) (reg proc))
+     (branch (label primitive-apply))
+     (test (op compound-procedure?) (reg proc))
+     (branch (label compound-apply))
+     (test (op compiled-procedure?) (reg proc)) ; These two lines are
+     (branch (label compiled-apply))            ; from Section 5.5.7
+     (goto (label unknown-procedure-type))
+     primitive-apply
+     (assign val (op apply-primitive-procedure) (reg proc) (reg argl))
+     (restore continue)
+     (goto (reg continue))
+     compound-apply
+     (assign unev (op procedure-parameters) (reg proc))
+     (assign env (op procedure-environment) (reg proc))
+     (assign env (op extend-environment) (reg unev) (reg argl) (reg env))
+     (assign unev (op procedure-body) (reg proc))
+     (goto (label ev-sequence))
 
-  ;; Section 5.4.2 - Sequence evaluation
-  ev-begin
-  (assign unev (op begin-actions) (reg exp))
-  (save continue)
-  (goto (label ev-sequence))
-  ;; Optimized for tail-recursion
-  ev-sequence
-  (assign exp (op first-exp) (reg unev))
-  (test (op last-exp?) (reg unev))
-  (branch (label ev-sequence-last-exp))
-  (save unev)
-  (save env)
-  (assign continue (label ev-sequence-continue))
-  (goto (label eval-dispatch))
-  ev-sequence-continue
-  (restore env)
-  (restore unev)
-  (assign unev (op rest-exps) (reg unev))
-  (goto (label ev-sequence))
-  ev-sequence-last-exp
-  (restore continue)
-  (goto (label eval-dispatch))
-  ;; Not optimized for tail-recursion
-  ;; ev-sequence
-  ;; (test (op no-more-exps?) (reg unev))
-  ;; (branch (label ev-sequence-end))
-  ;; (assign exp (op first-exp) (reg unev))
-  ;; (save unev)
-  ;; (save env)
-  ;; (assign continue (label ev-sequence-continue))
-  ;; (goto (label eval-dispatch))
-  ;; ev-sequence-continue
-  ;; (restore env)
-  ;; (restore unev)
-  ;; (assign unev (op rest-exps) (reg unev))
-  ;; (goto (label ev-sequence))
-  ;; ev-sequence-end
-  ;; (restore continue)
-  ;; (goto (reg continue))
+     ;; Section 5.4.2 - Sequence evaluation
+     ev-begin
+     (assign unev (op begin-actions) (reg exp))
+     (save continue)
+     (goto (label ev-sequence))
+     ;; Optimized for tail-recursion
+     ev-sequence
+     (assign exp (op first-exp) (reg unev))
+     (test (op last-exp?) (reg unev))
+     (branch (label ev-sequence-last-exp))
+     (save unev)
+     (save env)
+     (assign continue (label ev-sequence-continue))
+     (goto (label eval-dispatch))
+     ev-sequence-continue
+     (restore env)
+     (restore unev)
+     (assign unev (op rest-exps) (reg unev))
+     (goto (label ev-sequence))
+     ev-sequence-last-exp
+     (restore continue)
+     (goto (label eval-dispatch))
+     ;; Not optimized for tail-recursion
+     ;; ev-sequence
+     ;; (test (op no-more-exps?) (reg unev))
+     ;; (branch (label ev-sequence-end))
+     ;; (assign exp (op first-exp) (reg unev))
+     ;; (save unev)
+     ;; (save env)
+     ;; (assign continue (label ev-sequence-continue))
+     ;; (goto (label eval-dispatch))
+     ;; ev-sequence-continue
+     ;; (restore env)
+     ;; (restore unev)
+     ;; (assign unev (op rest-exps) (reg unev))
+     ;; (goto (label ev-sequence))
+     ;; ev-sequence-end
+     ;; (restore continue)
+     ;; (goto (reg continue))
 
-  ;; Section 5.4.3 - Conditionals
-  ev-if
-  (save exp)                            ; save expression for later
-  (save env)
-  (save continue)
-  (assign continue (label ev-if-decide))
-  (assign exp (op if-predicate) (reg exp))
-  (goto (label eval-dispatch))          ; evaluate the predicate
-  ev-if-decide
-  (restore continue)
-  (restore env)
-  (restore exp)
-  (test (op true?) (reg val))
-  (branch (label ev-if-consequent))
-  ev-if-alternative
-  (assign exp (op if-alternative) (reg exp))
-  (goto (label eval-dispatch))
-  ev-if-consequent
-  (assign exp (op if-consequent) (reg exp))
-  (goto (label eval-dispatch))
+     ;; Section 5.4.3 - Conditionals
+     ev-if
+     (save exp)                         ; save expression for later
+     (save env)
+     (save continue)
+     (assign continue (label ev-if-decide))
+     (assign exp (op if-predicate) (reg exp))
+     (goto (label eval-dispatch))       ; evaluate the predicate
+     ev-if-decide
+     (restore continue)
+     (restore env)
+     (restore exp)
+     (test (op true?) (reg val))
+     (branch (label ev-if-consequent))
+     ev-if-alternative
+     (assign exp (op if-alternative) (reg exp))
+     (goto (label eval-dispatch))
+     ev-if-consequent
+     (assign exp (op if-consequent) (reg exp))
+     (goto (label eval-dispatch))
 
-  ;; Assignments and definitions
-  ev-assignment
-  (assign unev (op assignment-variable) (reg exp))
-  (save unev)                           ; save variable for later
-  (assign exp (op assignment-value) (reg exp))
-  (save env)
-  (save continue)
-  (assign continue (label ev-assignment-1))
-  (goto (label eval-dispatch))         ; evaluate the assignment value
-  ev-assignment-1
-  (restore continue)
-  (restore env)
-  (restore unev)
-  (perform (op set-variable-value!) (reg unev) (reg val) (reg env))
-  (assign val (const ok))
-  (goto (reg continue))
-  ev-definition
-  (assign unev (op definition-variable) (reg exp))
-  (save unev)                           ; save variable for later
-  (assign exp (op definition-value) (reg exp))
-  (save env)
-  (save continue)
-  (assign continue (label ev-definition-1))
-  (goto (label eval-dispatch))         ; evaluate the definition value
-  ev-definition-1
-  (restore continue)
-  (restore env)
-  (restore unev)
-  (perform (op define-variable!) (reg unev) (reg val) (reg env))
-  (assign val (const ok))
-  (goto (reg continue))
+     ;; Assignments and definitions
+     ev-assignment
+     (assign unev (op assignment-variable) (reg exp))
+     (save unev)                        ; save variable for later
+     (assign exp (op assignment-value) (reg exp))
+     (save env)
+     (save continue)
+     (assign continue (label ev-assignment-1))
+     (goto (label eval-dispatch))      ; evaluate the assignment value
+     ev-assignment-1
+     (restore continue)
+     (restore env)
+     (restore unev)
+     (perform (op set-variable-value!) (reg unev) (reg val) (reg env))
+     (assign val (const ok))
+     (goto (reg continue))
+     ev-definition
+     (assign unev (op definition-variable) (reg exp))
+     (save unev)                        ; save variable for later
+     (assign exp (op definition-value) (reg exp))
+     (save env)
+     (save continue)
+     (assign continue (label ev-definition-1))
+     (goto (label eval-dispatch))      ; evaluate the definition value
+     ev-definition-1
+     (restore continue)
+     (restore env)
+     (restore unev)
+     (perform (op define-variable!) (reg unev) (reg val) (reg env))
+     (assign val (const ok))
+     (goto (reg continue))
 ;;; Exercise 5.23 START
 
-  ;; See also above.
-  ev-let
-  (assign exp (op let->combination) (reg exp))
-  (goto (label eval-dispatch))
+     ;; See also above.
+     ev-let
+     (assign exp (op let->combination) (reg exp))
+     (goto (label eval-dispatch))
 
 ;;; Exercise 5.23 END
 ;;; Exercise 5.24 START
 
-  ;; See also above.
-  ev-cond
-  (assign unev (op cond-clauses) (reg exp))
-  (save unev)                                ; stack/unev: all conditions
-  ev-cond-loop
-  (assign exp (op car) (reg unev))           ; exp <- first condition
-  (save exp)                                 ; stack: first cond, all conds
-  (test (op cond-else-clause?) (reg exp))
-  (branch (label ev-cond-found))
-  (assign exp (op cond-predicate) (reg exp)) ; exp <- first predicate
-  (save continue)
-  (assign continue (label ev-cond-test))
-  (goto (label eval-dispatch))
-  ev-cond-test
-  (restore continue)
-  (test (op true?) (reg val))
-  (branch (label ev-cond-found))
-  (restore exp)
-  (restore unev)
-  (assign unev (op cdr) (reg unev))
-  (save unev)
-  (goto (label ev-cond-loop))
-  ev-cond-found                              ; stack: first cond, all conds
-  (restore exp)
-  (restore unev)
-  (assign unev (op cond-actions) (reg exp))
-  (save continue)
-  (goto (label ev-sequence))
+     ;; See also above.
+     ev-cond
+     (assign unev (op cond-clauses) (reg exp))
+     (save unev)                        ; stack/unev: all conditions
+     ev-cond-loop
+     (assign exp (op car) (reg unev))   ; exp <- first condition
+     (save exp)                         ; stack: first cond, all conds
+     (test (op cond-else-clause?) (reg exp))
+     (branch (label ev-cond-found))
+     (assign exp (op cond-predicate) (reg exp)) ; exp <- first predicate
+     (save continue)
+     (assign continue (label ev-cond-test))
+     (goto (label eval-dispatch))
+     ev-cond-test
+     (restore continue)
+     (test (op true?) (reg val))
+     (branch (label ev-cond-found))
+     (restore exp)
+     (restore unev)
+     (assign unev (op cdr) (reg unev))
+     (save unev)
+     (goto (label ev-cond-loop))
+     ev-cond-found                      ; stack: first cond, all conds
+     (restore exp)
+     (restore unev)
+     (assign unev (op cond-actions) (reg exp))
+     (save continue)
+     (goto (label ev-sequence))
 
 ;;; Exercise 5.24 END
 
-  ;; Section 5.4.4 - REPL
-  read-eval-print-loop
-  (perform (op initialize-stack))
-  (perform (op prompt-for-input) (const ";;; EC-Eval input:"))
-  (assign exp (op read))
-  (assign env (op get-global-environment))
-  (assign continue (label print-result))
-  (goto (label eval-dispatch))
-  print-result
-  (perform (op print-stack-statistics)) ; <- added for monitoring performance
-  (perform (op announce-output) (const ";;; EC-Eval value:"))
-  (perform (op user-print) (reg val))
-  (goto (label read-eval-print-loop))
+     ;; Section 5.4.4 - REPL
+     read-eval-print-loop
+     (perform (op initialize-stack))
+     (perform (op prompt-for-input) (const ";;; EC-Eval input:"))
+     (assign exp (op read))
+     (assign env (op get-global-environment))
+     (assign continue (label print-result))
+     (goto (label eval-dispatch))
+     print-result
+     (perform (op print-stack-statistics)) ; <- added for monitoring performance
+     (perform (op announce-output) (const ";;; EC-Eval value:"))
+     (perform (op user-print) (reg val))
+     (goto (label read-eval-print-loop))
 
-  ;; Error handling
-  unknown-expression-type
-  (assign val (const unknown-expression-type-error))
-  (goto (label signal-error))
-  unknown-procedure-type
-  (restore continue)          ; clean up stack (from `apply-dispatch')
-  (assign val (const unknown-procedure-type-error))
-  (goto (label signal-error))
-  signal-error
-  (perform (op user-print) (reg val))
-  (goto (label read-eval-print-loop)))
+     ;; Error handling
+     unknown-expression-type
+     (assign val (const unknown-expression-type-error))
+     (goto (label signal-error))
+     unknown-procedure-type
+     (restore continue)       ; clean up stack (from `apply-dispatch')
+     (assign val (const unknown-procedure-type-error))
+     (goto (label signal-error))
+     signal-error
+     (perform (op user-print) (reg val))
+     (goto (label read-eval-print-loop))
+
+     ;; Handling compiled functions (Section 5.5.7)
+     compiled-apply
+     (restore continue)
+     (assign val (op compiled-procedure-entry) (reg proc))
+     (goto (reg val))
+
+     ;; Running compiled code at startup (Section 5.5.7)
+     external-entry
+     (perform (op initialize-stack))
+     (assign env (op get-global-environment))
+     (assign continue (label print-result))
+     (goto (reg val)))))
 
 (defun empty-arglist ()
   '())
@@ -12736,6 +12761,7 @@ Some function calls are updated to the versions in the exercises."
 
 (defun empty-instruction-sequence ()
   (make-instruction-sequence '() '() '()))
+
 ;;; Exercise 5.31 START
 
 ;;; Order of evaluation: [1] operator [2] operands (right to left)
@@ -13063,6 +13089,14 @@ Some function calls are updated to the versions in the exercises."
 
 
 ;;; Section 5.5.5
+
+#+nil
+(compile%
+ '(define (factorial n)
+    (if (= n 1)
+        1
+        (* (factorial (- n 1)) n)))
+ 'val 'next)
 
 ;;; Exercise 5.33 START
 
@@ -13485,13 +13519,14 @@ Does not reverse OPERAND-CODES, but compiles a REVERSE operation."
 ;;; Section 5.5.6
 
 #+nil
-(compile-2 '((lambda (x y)
-               (lambda (a b c d e)
-                 ((lambda (y z) (* x y z))
-                  (* a b x)
-                  (+ c d x))))
-             3 4)
-           '() 'val 'next)
+(compile-2
+ '((lambda (x y)
+     (lambda (a b c d e)
+       ((lambda (y z) (* x y z))
+        (* a b x)
+        (+ c d x))))
+   3 4)
+ '() 'val 'next)
 
 ;;; Exercise 5.39 START
 
@@ -13678,13 +13713,167 @@ I also added LET."
 
 ;;; Section 5.5.7
 
-#+nil
-(compile%
- '(define (factorial n)
-    (if (= n 1)
+;;; The macro I've used for the previous exercises,
+;;; this seems the place to put it.
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defmacro defcompiled (name tracep &body prog)
+    "For convenience.
+Compiles the code, and creates a function that calls its interpreter."
+    (let ((code (compile-2 (cons 'begin prog) '() 'val 'next)))
+      `(defmachine-3 ,name () (continue env exp argl proc val) val
+           ((apply-primitive-procedure #'apply-primitive-procedure)
+            (compiled-procedure-entry #'compiled-procedure-entry)
+            (compiled-procedure-env #'compiled-procedure-env)
+            (cons #'cons)
+            (define-variable! #'define-variable)
+            (extend-environment #'extend-environment)
+            (false? #'falsep)
+            (get-global-environment #'get-global-environment)
+            (lexical-address-lookup #'lexical-address-lookup)
+            (lexical-address-set! #'lexical-address-set)
+            (list #'list)
+            (lookup-variable-value #'lookup-variable-value)
+            (make-compiled-procedure #'make-compiled-procedure)
+            (primitive-procedure? #'primitive-procedure-p)
+            (set-variable-value! #'set-variable-value))
+           ""
+         ,@(if tracep '((perform (op trace-on))) '())
+         (assign env (op get-global-environment))
+         ,@(third code)))))
+
+;;; Example use
+(defcompiled factorial-7 nil
+  (define (factorial n)
+    (if (= n 0)
         1
-        (* (factorial (- n 1)) n)))
- 'val 'next)
+        (* n (factorial (- n 1)))))
+  (factorial 7))
+
+(defun user-print-2 (object)
+  (cond ((compound-procedure-p object)
+         (print (list 'compound-procedure
+                      (procedure-parameters object)
+                      (procedure-body object)
+                      '<procedure-env>)))
+        ((compiled-procedure-p object)
+         (print "<compiled-procedure>"))
+        (t (print object))))
+
+(defun compile-and-go (expression)
+  (let ((instructions (assemble-2 (statements (compile-2 expression '() 'val 'return)) *eceval*)))
+    (setf *the-global-environment* (setup-environment))
+    (set-register-contents *eceval* 'val instructions)
+    (set-register-contents *eceval* 'flag 'true)
+    (start *eceval*)))
+
+;;; Exercise 5.45 START
+
+;;; Using FACTORIAL-6 as the special purpose machine.
+
+;;; The interpreted results are also shown,
+;;; because they are somewhat less than before due to optimizations.
+
+;; |-------------+-----+-----+-----+-----+-----+-----+--------|
+;; | n           |   5 |   6 |   7 |   8 |   9 |  10 | n      |
+;; |-------------+-----+-----+-----+-----+-----+-----+--------|
+;; | pushes-sp   |   8 |  10 |  12 |  14 |  16 |  18 | 2n-2   |
+;; |-------------+-----+-----+-----+-----+-----+-----+--------|
+;; | depth-sp    |   8 |  10 |  12 |  14 |  16 |  18 | 2n-2   |
+;; |-------------+-----+-----+-----+-----+-----+-----+--------|
+;; | pushes-int  | 108 | 132 | 156 | 180 | 204 | 228 | 24n-12 |
+;; |-------------+-----+-----+-----+-----+-----+-----+--------|
+;; | depth-int   |  28 |  33 |  38 |  43 |  48 |  53 | 5n+3   |
+;; |-------------+-----+-----+-----+-----+-----+-----+--------|
+;; | pushes-comp |  29 |  35 |  41 |  47 |  53 |  59 | 6n-1   |
+;; |-------------+-----+-----+-----+-----+-----+-----+--------|
+;; | depth-comp  |  14 |  17 |  20 |  23 |  26 |  29 | 3n-1   |
+;; |-------------+-----+-----+-----+-----+-----+-----+--------|
+
+;;; The ratios of interpreted to special purpose machine are 24/2=12 and 5/2=2.5.
+;;; The ratios of interpreted to compiled are 24/6=4 and 5/3=1.67.
+;;; The ratios of compiled to special purpose machine are 6/2=3 and 3/2=1.5.
+
+;;; Compiled code could be better if COMPILE-PROC-APPL wouldn't invalidate all registers.
+
+;;; Exercise 5.45 END
+
+;;; Exercise 5.46 START
+
+;;; Using FIB-6 as the special purpose machine.
+
+;; |-------------+-----+-----+-----+------+------+------+-------------|
+;; | n           |   5 |   6 |   7 |    8 |    9 |   10 | n           |
+;; |-------------+-----+-----+-----+------+------+------+-------------|
+;; | pushes-sp   |  21 |  36 |  60 |   99 |  162 |  264 | 3F(n+1)-3   |
+;; |-------------+-----+-----+-----+------+------+------+-------------|
+;; | depth-sp    |   8 |  10 |  12 |   14 |   16 |   18 | 2n-2        |
+;; |-------------+-----+-----+-----+------+------+------+-------------|
+;; | pushes-int  | 306 | 516 | 852 | 1398 | 2280 | 3708 | 42F(n+1)-30 |
+;; |-------------+-----+-----+-----+------+------+------+-------------|
+;; | depth-int   |  28 |  33 |  38 |   43 |   48 |   53 | 5n+3        |
+;; |-------------+-----+-----+-----+------+------+------+-------------|
+;; | pushes-comp |  75 | 125 | 205 |  335 |  545 |  885 | 10F(n+1)-5  |
+;; |-------------+-----+-----+-----+------+------+------+-------------|
+;; | depth-comp  |  14 |  17 |  20 |   23 |   26 |   29 | 3n-1        |
+;; |-------------+-----+-----+-----+------+------+------+-------------|
+
+;;; The ratios of interpreted to special purpose machine are 42/3=14 and 5/2=2.5.
+;;; The ratios of interpreted to compiled are 42/10=4.2 and 5/3=1.67.
+;;; The ratios of compiled to special purpose machine are 10/3=3.33 and 3/2=1.5.
+
+;;; Exercise 5.46 END
+
+;;; Exercise 5.47 START
+
+
+
+;;; Exercise 5.47 END
+
+;;; Exercise 5.48 START
+
+
+
+;;; Exercise 5.48 END
+
+;;; Exercise 5.49 START
+
+
+
+;;; Exercise 5.49 END
+
+;;; Exercise 5.50 START
+
+
+
+;;; Exercise 5.50 END
+
+;;; Exercise 5.51 START
+
+;;; TODO
+;; Develop a rudimentary implementation of Scheme in C (or some other
+;; low-level language of your choice) by translating the
+;; explicit-control evaluator of section 5-4 into C.  In order to run
+;; this code you will need to also provide appropriate
+;; storage-allocation routines and other run-time support.
+
+;;; Exercise 5.51 END
+
+;;; Exercise 5.52 START
+
+;;; TODO
+;; As a counterpoint to exercise Exercise 5-51, modify the compiler so
+;; that it compiles Scheme procedures into sequences of C
+;; instructions.  Compile the metacircular evaluator of section 4-1 to
+;; produce a Scheme interpreter written in C.
+
+;;; Exercise 5.52 END
+
+#+nil
+(compile-and-go
+ '(define (factorial n)
+   (if (= n 1)
+       1
+       (* (factorial (- n 1)) n))))
 
 
 ;;Local Variables:
