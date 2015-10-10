@@ -16,7 +16,7 @@
 
 4.1: Evaluator for Scheme
 4.2: - with lazy evaluation
-4.3: - with nondetermenistic evaluation
+4.3: - with nondeterministic evaluation
 4.4: Evaluator for Prolog(-like language)
 
 5.1: How to design a register-machine
