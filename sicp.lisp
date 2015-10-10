@@ -10744,24 +10744,23 @@ and abandoning those where unification failes."
 
 ;;; Section 5.1.1
 
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (defmacro defmachine (name vars tmpvars output funs doc &body body)
-    "For convenience.
+(defmacro defmachine (name vars tmpvars output funs doc &body body)
+  "For convenience.
 Machine creation is inside the DEFUN, so machine-programs can be compiled
 even if all of the machine codes comes only later.
 This has the drawback that compilation errors are signaled at runtime."
-    (let ((machine (gensym "MACHINE"))
-          (fns (mapcar (lambda (f)
-                         `(list ',(first f) ,(second f)))
-                       funs)))
-      `(defun ,name ,vars
-         ,doc
-         (let ((,machine (make-machine ',(append vars tmpvars) (list ,@fns) ',body)))
-           (mapc (lambda (var val)
-                   (set-register-contents ,machine var val))
-                 ',vars (list ,@vars))
-           (start ,machine)
-           (get-register-contents ,machine ',output))))))
+  (let ((machine (gensym "MACHINE"))
+        (fns (mapcar (lambda (f)
+                       `(list ',(first f) ,(second f)))
+                     funs)))
+    `(defun ,name ,vars
+       ,doc
+       (let ((,machine (make-machine ',(append vars tmpvars) (list ,@fns) ',body)))
+         (mapc (lambda (var val)
+                 (set-register-contents ,machine var val))
+               ',vars (list ,@vars))
+         (start ,machine)
+         (get-register-contents ,machine ',output)))))
 
 (defmachine gcd-2 (a b) (tmp) a ((rem #'mod) (= #'=))
     "GCD - first version."
@@ -11627,21 +11626,20 @@ Return values:
              (assemble controller-text machine))
     machine))
 
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (defmacro defmachine-2 (name vars output funs doc &body body)
-    "Only input variables are declared."
-    (let ((machine (gensym "MACHINE"))
-          (fns (mapcar (lambda (f)
-                         `(list ',(first f) ,(second f)))
-                       funs)))
-      `(defun ,name ,vars
-         ,doc
-         (let ((,machine (make-machine-2 (list ,@fns) ',body)))
-           (mapc (lambda (var val)
-                   (set-register-contents ,machine var val))
-                 ',vars (list ,@vars))
-           (start ,machine)
-           (get-register-contents ,machine ',output))))))
+(defmacro defmachine-2 (name vars output funs doc &body body)
+  "Only input variables are declared."
+  (let ((machine (gensym "MACHINE"))
+        (fns (mapcar (lambda (f)
+                       `(list ',(first f) ,(second f)))
+                     funs)))
+    `(defun ,name ,vars
+       ,doc
+       (let ((,machine (make-machine-2 (list ,@fns) ',body)))
+         (mapc (lambda (var val)
+                 (set-register-contents ,machine var val))
+               ',vars (list ,@vars))
+         (start ,machine)
+         (get-register-contents ,machine ',output)))))
 
 ;;; Test
 (defmachine-2 gcd-5 () a
@@ -11853,21 +11851,20 @@ Some function calls are updated to the versions in the exercises."
              (assemble-2 controller-text machine))
     machine))
 
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (defmacro defmachine-3 (name vars tmpvars output funs doc &body body)
-    "Uses MAKE-MACHINE-3."
-    (let ((machine (gensym "MACHINE"))
-          (fns (mapcar (lambda (f)
-                         `(list ',(first f) ,(second f)))
-                       funs)))
-      `(defun ,name ,vars
-         ,doc
-         (let ((,machine (make-machine-3 ',(append vars tmpvars) (list ,@fns) ',body)))
-           (mapc (lambda (var val)
-                   (set-register-contents ,machine var val))
-                 ',vars (list ,@vars))
-           (start ,machine)
-           (get-register-contents ,machine ',output))))))
+(defmacro defmachine-3 (name vars tmpvars output funs doc &body body)
+  "Uses MAKE-MACHINE-3."
+  (let ((machine (gensym "MACHINE"))
+        (fns (mapcar (lambda (f)
+                       `(list ',(first f) ,(second f)))
+                     funs)))
+    `(defun ,name ,vars
+       ,doc
+       (let ((,machine (make-machine-3 ',(append vars tmpvars) (list ,@fns) ',body)))
+         (mapc (lambda (var val)
+                 (set-register-contents ,machine var val))
+               ',vars (list ,@vars))
+         (start ,machine)
+         (get-register-contents ,machine ',output)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Code duplication ends. ;;;
@@ -12230,9 +12227,11 @@ Some function calls are updated to the versions in the exercises."
 
 ;;; Section 5.4
 
-(defparameter *eceval*
+(defun get-evaluator ()
+  "Returns a scheme interpreter, with several additions from exercises and later sections.
+This is put in a function so functions defined later do not raise errors."
   (make-machine-3
-   '(exp env val continue proc argl unev)
+   '(exp env val continue proc argl unev compapp)
    (list (list 'adjoin-arg #'adjoin-arg)
          (list 'announce-output #'announce-output)
          (list 'application? #'applicationp)
@@ -12300,8 +12299,9 @@ Some function calls are updated to the versions in the exercises."
          (list 'true? #'truep)
          (list 'user-print #'user-print-2)
          (list 'variable? #'variablep))
-   '((branch (label external-entry))     ; see Section 5.5.7
-     (goto (label read-eval-print-loop)) ; see Section 5.4.4
+   '((assign compapp (label compound-apply)) ; see Exercise 5.47
+     (branch (label external-entry))         ; see Section 5.5.7
+     (goto (label read-eval-print-loop))     ; see Section 5.4.4
 
      ;; Section 5.4.1 - Evaluation dispatch
      eval-dispatch
@@ -13634,7 +13634,7 @@ I also added LET."
                                (operands exp))))
     (preserving '(env continue) proc-code
                 (preserving '(proc continue) (construct-arglist operand-codes)
-                            (compile-procedure-call target linkage)))))
+                            (compile-procedure-call-1 target linkage)))))
 
 (defun extend-compile-environment (vars cenv)
   (cons vars cenv))
@@ -13715,39 +13715,40 @@ I also added LET."
 
 ;;; The macro I've used for the previous exercises,
 ;;; this seems the place to put it.
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (defmacro defcompiled (name tracep &body prog)
-    "For convenience.
+(defmacro defcompiled (name tracep &body prog)
+  "For convenience.
 Compiles the code, and creates a function that calls its interpreter."
-    (let ((code (compile-2 (cons 'begin prog) '() 'val 'next)))
-      `(defmachine-3 ,name () (continue env exp argl proc val) val
-           ((apply-primitive-procedure #'apply-primitive-procedure)
-            (compiled-procedure-entry #'compiled-procedure-entry)
-            (compiled-procedure-env #'compiled-procedure-env)
-            (cons #'cons)
-            (define-variable! #'define-variable)
-            (extend-environment #'extend-environment)
-            (false? #'falsep)
-            (get-global-environment #'get-global-environment)
-            (lexical-address-lookup #'lexical-address-lookup)
-            (lexical-address-set! #'lexical-address-set)
-            (list #'list)
-            (lookup-variable-value #'lookup-variable-value)
-            (make-compiled-procedure #'make-compiled-procedure)
-            (primitive-procedure? #'primitive-procedure-p)
-            (set-variable-value! #'set-variable-value))
-           ""
-         ,@(if tracep '((perform (op trace-on))) '())
-         (assign env (op get-global-environment))
-         ,@(third code)))))
+  (let ((code (compile-2 (cons 'begin prog) '() 'val 'next)))
+    `(defmachine-3 ,name () (continue env exp argl proc val compapp) val
+         ((apply-primitive-procedure #'apply-primitive-procedure)
+          (compiled-procedure-entry #'compiled-procedure-entry)
+          (compiled-procedure-env #'compiled-procedure-env)
+          (compound-procedure? #'compound-procedure-p)
+          (cons #'cons)
+          (define-variable! #'define-variable)
+          (extend-environment #'extend-environment)
+          (false? #'falsep)
+          (get-global-environment #'get-global-environment)
+          (lexical-address-lookup #'lexical-address-lookup)
+          (lexical-address-set! #'lexical-address-set)
+          (list #'list)
+          (lookup-variable-value #'lookup-variable-value)
+          (make-compiled-procedure #'make-compiled-procedure)
+          (primitive-procedure? #'primitive-procedure-p)
+          (set-variable-value! #'set-variable-value))
+         ""
+       ,@(if tracep '((perform (op trace-on))) '())
+       (assign env (op get-global-environment))
+       ,@(third code))))
 
 ;;; Example use
-(defcompiled factorial-7 nil
-  (define (factorial n)
-    (if (= n 0)
-        1
-        (* n (factorial (- n 1)))))
-  (factorial 7))
+(eval-when (:execute)
+  (defcompiled factorial-7 nil
+    (define (factorial n)
+      (if (= n 0)
+          1
+          (* n (factorial (- n 1)))))
+    (factorial 7)))
 
 (defun user-print-2 (object)
   (cond ((compound-procedure-p object)
@@ -13758,6 +13759,8 @@ Compiles the code, and creates a function that calls its interpreter."
         ((compiled-procedure-p object)
          (print "<compiled-procedure>"))
         (t (print object))))
+
+(defparameter *eceval* (get-evaluator))
 
 (defun compile-and-go (expression)
   (let ((instructions (assemble-2 (statements (compile-2 expression '() 'val 'return)) *eceval*)))
@@ -13825,7 +13828,62 @@ Compiles the code, and creates a function that calls its interpreter."
 
 ;;; Exercise 5.47 START
 
+(defun compile-procedure-call-1 (target linkage)
+  "Added compound branch."
+  (let ((primitive-branch (make-label 'primitive-branch))
+        (compiled-branch (make-label 'compiled-branch))
+        (compound-branch (make-label 'compound-branch))
+        (after-call (make-label 'after-call)))
+    (let ((compiled-linkage (if (eq linkage 'next) after-call linkage)))
+      (append-instruction-sequences
+       (make-instruction-sequence
+        '(proc) '()
+        `((test (op primitive-procedure?) (reg proc))
+          (branch (label ,primitive-branch))
+          (test (op compound-procedure?) (reg proc))
+          (branch (label ,compound-branch))))
+       (parallel-instruction-sequences 
+        (append-instruction-sequences
+         compiled-branch
+         (compile-proc-appl target compiled-linkage))
+        (parallel-instruction-sequences
+         (append-instruction-sequences
+          compound-branch
+          (compile-comp-proc-appl target compiled-linkage))
+         (append-instruction-sequences
+          primitive-branch
+          (end-with-linkage
+           linkage
+           (make-instruction-sequence
+            '(proc argl) (list target)
+            `((assign ,target (op apply-primitive-procedure) (reg proc) (reg argl))))))))
+       after-call))))
 
+(defun compile-comp-proc-appl (target linkage)
+  "Like COMPILE-PROC-APPL, but saving CONTINUE and jumping to (REG COMPAPP)."
+  (cond ((and (eq target 'val) (not (eq linkage 'return)))
+         (make-instruction-sequence
+          '(proc) +all-regs+
+          `((assign continue (label ,linkage))
+            (save continue)
+            (goto (reg compapp)))))
+        ((and (not (eq target 'val)) (not (eq linkage 'return)))
+         (let ((proc-return (make-label 'proc-return)))
+           (make-instruction-sequence
+            '(proc) +all-regs+
+            `((assign continue (label ,proc-return))
+              (save continue)
+              (goto (reg compapp))
+              ,proc-return
+              (assign ,target (reg val))
+              (goto (label ,linkage))))))
+        ((and (eq target 'val) (eq linkage 'return))
+         (make-instruction-sequence
+          '(proc continue) +all-regs+
+          '((save continue)
+            (goto (reg compapp)))))
+        ((and (not (eq target 'val)) (eq linkage 'return))
+         (error "return linkage, target not val: ~a -- COMPILE" target))))
 
 ;;; Exercise 5.47 END
 
